@@ -16,13 +16,28 @@ exports.history = exports.uploadVideo = exports.createWebSocketForFile = void 0;
 const ulid_1 = require("ulid");
 const tryCatch_1 = require("../helpers/tryCatch");
 const db_service_1 = __importDefault(require("../service/db.service"));
+const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"));
 exports.createWebSocketForFile = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     let path = "/" + (0, ulid_1.ulid)();
     let db = db_service_1.default.getInstance();
     db.insert({ ulid: path, state: 'initiate', filename: req.body.filename });
+    mysqldb_service_1.default.query('INSERT INTO hls_videos_status (video_name,ulid) VALUES (?,?)', [req.body.filename, path]).then((result) => {
+        console.log(result);
+    });
     return res.status(200).json({ path });
 }));
 exports.uploadVideo = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
 }));
 exports.history = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    let db = db_service_1.default.getInstance();
+    db.find({})
+        .sort({ createdAt: -1 })
+        .exec((err, docs) => {
+        if (err) {
+            res.status(500).send(err);
+        }
+        else {
+            res.status(200).send(docs);
+        }
+    });
 }));

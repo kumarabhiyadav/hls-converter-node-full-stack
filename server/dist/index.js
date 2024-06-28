@@ -25,6 +25,7 @@ const path_1 = __importDefault(require("path"));
 const db_service_1 = __importDefault(require("./service/db.service"));
 dotenv_1.default.config();
 const port = process.env.PORT;
+console.log(port);
 app.use((0, cors_1.default)({ origin: '*' }));
 const fluent_ffmpeg_1 = __importDefault(require("fluent-ffmpeg"));
 const s3Upload_1 = require("./helpers/s3Upload");
@@ -33,6 +34,7 @@ const uploadsDir = path_1.default.join(__dirname, '..', 'uploads');
 const converted = path_1.default.join(__dirname, '..', 'converted');
 app.post('/upload-file', conversion_controller_1.uploadVideo);
 app.post('/create-web-socket-for-file', conversion_controller_1.createWebSocketForFile);
+app.get('/history', conversion_controller_1.history);
 app.get("/", (req, res) => {
     res.send("Serving on port" + port);
 });
@@ -72,7 +74,6 @@ wss.on('connection', (ws, req) => {
                             ws.send('Error writing file');
                         }
                         else {
-                            console.log('File saved successfully:', filePath);
                             db.update({ ulid: reqPath }, { $set: { state: 'uploaded' } }, {});
                             ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
                             try {
@@ -81,7 +82,6 @@ wss.on('connection', (ws, req) => {
                                     if (err) {
                                         return console.error(`Error creating directory: ${err.message}`);
                                     }
-                                    console.log('Directory created successfully!');
                                 });
                                 yield convertVideo(filePath, outputdir, ws);
                                 db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
@@ -90,12 +90,12 @@ wss.on('connection', (ws, req) => {
                                     if (err) {
                                         return console.error(`Error creating directory: ${err.message}`);
                                     }
-                                    console.log('Directory created successfully!');
                                 });
                                 yield generatePlaylist(outputdir);
                                 yield convertToMultipleResolutions(filePath, outputdir + '/download/', ws);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', ws);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir + '/download/', (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : '', ws);
+                                db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } });
+                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', ws, docs[0]['_id']);
+                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir + '/download/', (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : '', ws, docs[0]['_id']);
                             }
                             catch (error) {
                                 console.error('Error converting video:', error);
@@ -120,8 +120,8 @@ wss.on('connection', (ws, req) => {
 });
 function convertVideo(inputFilePath, outputDir, ws) {
     return __awaiter(this, void 0, void 0, function* () {
-        // console.log("input :" + inputFilePath);
-        // console.log("out :" + outputDir);
+        console.log("input :" + inputFilePath);
+        console.log("out :" + outputDir);
         return new Promise((resolve, reject) => {
             (0, fluent_ffmpeg_1.default)(inputFilePath)
                 .inputOptions('-v debug')

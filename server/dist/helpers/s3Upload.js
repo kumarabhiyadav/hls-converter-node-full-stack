@@ -16,65 +16,113 @@ exports.uploadFolderToS3 = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const aws_sdk_1 = __importDefault(require("aws-sdk"));
-const console_1 = require("console");
+const db_service_1 = __importDefault(require("../service/db.service"));
+const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"));
 aws_sdk_1.default.config.update({
     accessKeyId: process.env.S3_KEY,
     secretAccessKey: process.env.S3_SECRET,
     region: process.env.S3_REGION,
 });
 const s3 = new aws_sdk_1.default.S3();
-function uploadFileToS3(filePath, bucketName) {
-    return new Promise((resolve, reject) => {
-        const fileStream = fs_1.default.createReadStream(filePath);
-        let splitedArray = filePath.split('/');
-        let splitedLength = filePath.split('/').length;
-        let destination = process.env.S3_PATH + '/' + splitedArray[splitedLength - 2] + '/' + splitedArray[splitedLength - 1];
-        const uploadParams = {
-            Bucket: bucketName,
-            Key: destination,
-            Body: fileStream,
-        };
-        s3.upload(uploadParams, (err, data) => {
-            if (err) {
-                reject(err);
+function uploadFileToS3(filePath, bucketName, uploadPath, id) {
+    return __awaiter(this, void 0, void 0, function* () {
+        return new Promise((resolve, reject) => {
+            const fileStream = fs_1.default.createReadStream(filePath);
+            const uploadParams = {
+                Bucket: bucketName,
+                Key: uploadPath,
+                Body: fileStream
+            };
+            s3.upload(uploadParams, (err, data) => {
+                if (err) {
+                    reject(err);
+                }
+                else {
+                    resolve(data);
+                }
+            });
+        })
+            .then((data) => {
+            let url = data.Location;
+            if (url.includes('playlist.m3u8')) {
+                let db = db_service_1.default.getInstance();
+                db.update({
+                    _id: id
+                }, { $set: { 'mainurl': url, state: 'converted' } });
+                db.find({ _id: id }).exec((err, docs) => {
+                    let video = docs[0];
+                    mysqldb_service_1.default.query('UPDATE hls_videos_status SET mainurl = ? WHERE ulid = ?', [url, video.ulid]).then((result) => {
+                        console.log("UPDATED IN MYSQL DB");
+                    });
+                });
             }
-            else {
-                resolve(data);
+            if (url.includes('high.mp4')) {
+                let db = db_service_1.default.getInstance();
+                db.update({
+                    _id: id
+                }, { $set: { 'high': url } });
+                db.find({ _id: id }).exec((err, docs) => {
+                    let video = docs[0];
+                    mysqldb_service_1.default.query('UPDATE hls_videos_status SET high = ? WHERE ulid = ?', [url, video.ulid]).then((result) => {
+                        console.log("UPDATED IN MYSQL DB HIGH");
+                    });
+                });
+            }
+            if (url.includes('low.mp4')) {
+                let db = db_service_1.default.getInstance();
+                db.update({
+                    _id: id
+                }, { $set: { 'low': url } });
+                db.find({ _id: id }).exec((err, docs) => {
+                    let video = docs[0];
+                    mysqldb_service_1.default.query('UPDATE hls_videos_status SET low = ? status= ? WHERE ulid = ?', [url, 'converted', video.ulid]).then((result) => {
+                        console.log("UPDATED IN MYSQL DB LOW");
+                    });
+                });
+            }
+            if (url.includes('med.mp4')) {
+                let db = db_service_1.default.getInstance();
+                db.update({
+                    _id: id
+                }, { $set: { 'med': url } });
+                db.find({ _id: id }).exec((err, docs) => {
+                    let video = docs[0];
+                    mysqldb_service_1.default.query('UPDATE hls_videos_status SET med = ? WHERE ulid = ?', [url, video.ulid]).then((result) => {
+                        console.log("UPDATED IN MYSQL DB MED");
+                    });
+                });
             }
         });
-    }).then((data) => {
-        console.log(data.Location);
     });
 }
-function uploadFolderToS3(folderPath, bucketName, ws) {
-    var _a;
+function uploadFolderToS3(folderPath, bucketName, ws, id) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
+            let db = db_service_1.default.getInstance();
             const files = fs_1.default.readdirSync(folderPath);
             let length = files.length;
             for (let i = 0; i < length; i++) {
                 const file = files[i];
                 const filePath = path_1.default.join(folderPath, file);
                 const stats = fs_1.default.statSync(filePath);
-                if (stats.isDirectory()) {
-                    (0, console_1.log)("Directory");
-                    (0, console_1.log)(filePath);
-                    yield uploadFolderToS3(filePath, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', ws);
-                }
-                else {
-                    try {
-                        yield uploadFileToS3(filePath, bucketName);
-                        console.log(`Uploaded ${file} to ${bucketName}`);
-                        if (ws) {
-                            ws.send(JSON.stringify({ status: 'fileupload', message: `uploading files to s3 ${i}/${length}` }));
-                        }
+                if (stats.isFile()) {
+                    let path = 'videos/';
+                    if (filePath.includes('.ts') || filePath.includes('.m3u8')) {
+                        let index = filePath.split('/').indexOf('converted');
+                        path += filePath.split('/')[index + 1] + '/' + filePath.split('/')[index + 2];
                     }
-                    catch (uploadErr) {
-                        console.error(`Error uploading file ${file} to S3:`, uploadErr);
+                    if (filePath.includes('download')) {
+                        let index = filePath.split('/').indexOf('converted');
+                        path += filePath.split('/')[index + 1] + '/' + filePath.split('/')[index + 2] + '/' + filePath.split('/')[index + 3];
                     }
+                    db.update({
+                        _id: id
+                    }, { $set: { 'status': 'uploadedtos3' } });
+                    yield uploadFileToS3(filePath, bucketName, path, id);
+                    ws.send(JSON.stringify({ status: 'fileupload', message: `uploading files to s3 ${i}/${length}` }));
                 }
             }
-            console.log('Upload complete.');
+            ws.send(JSON.stringify({ status: 'fileupload', message: `File Upload Completed` }));
         }
         catch (err) {
             console.error('Error reading folder or uploading files:', err);
