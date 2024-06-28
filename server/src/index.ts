@@ -79,7 +79,7 @@ wss.on('connection', (ws, req) => {
                     return;
                 }
 
-                const filename = docs[0].filename; 
+                const filename = docs[0].filename;
 
                 const filePath = path.join(uploadsDir, filename);
 
@@ -106,7 +106,7 @@ wss.on('connection', (ws, req) => {
                                     }
                                     // console.log('Directory created successfully!');
                                 });
-                                await convertVideo(filePath, outputdir, ws);
+                                await convertVideo(filePath, outputdir, ws, docs[0]._id);
 
                                 db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
 
@@ -118,15 +118,17 @@ wss.on('connection', (ws, req) => {
                                     // console.log('Directory created successfully!');
                                 });
                                 await generatePlaylist(outputdir);
-                                await convertToMultipleResolutions(filePath, outputdir + '/download/', ws);
+                                await convertToMultipleResolutions(filePath, outputdir + '/download/', ws, docs[0]._id);
 
                                 db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } })
-                              
 
-                                await uploadFolderToS3(outputdir,process.env.S3_BUCKET??'',ws,docs[0]['_id']);
-                                await uploadFolderToS3(outputdir + '/download/',process.env.S3_BUCKET??'',ws,docs[0]['_id']);
+
+                                await uploadFolderToS3(outputdir, process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
+                                await uploadFolderToS3(outputdir + '/download/', process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
                             } catch (error) {
                                 console.error('Error converting video:', error);
+                                db.update({ _id: docs[0]._id }, { $set: { 'error': error.message } })
+
                                 ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
                             }
                         }
@@ -150,7 +152,7 @@ wss.on('connection', (ws, req) => {
 
 
 
-async function convertVideo(inputFilePath: string, outputDir: string, ws: any): Promise<void> {
+async function convertVideo(inputFilePath: string, outputDir: string, ws: any, id: string): Promise<void> {
     console.log("input :" + inputFilePath);
     console.log("out :" + outputDir);
 
@@ -245,6 +247,8 @@ async function convertVideo(inputFilePath: string, outputDir: string, ws: any): 
                 }));
             })
             .on('error', (err: any) => {
+                let db = DataStore.getInstance();
+                db.update({ _id: id }, { $set: { 'error': err.message } })
                 console.error('ffmpeg error:', err);
                 reject(err);
             })
@@ -280,7 +284,7 @@ async function generatePlaylist(outputDir: string) {
 
 
 
-async function convertToMultipleResolutions(inputFile: string, outputDir: string, ws: any) {
+async function convertToMultipleResolutions(inputFile: string, outputDir: string, ws: any, id: string) {
     // Define the resolutions and their corresponding output file names
     const resolutions = [
         { width: 320, outputFile: 'low.mp4', bitrate: '1000k' },
@@ -308,6 +312,12 @@ async function convertToMultipleResolutions(inputFile: string, outputDir: string
                 }));
             })
             .on('error', (err) => {
+
+                let db = DataStore.getInstance();
+
+                db.update({ _id: id }, { $set: { 'error': err.message } })
+
+
                 console.error(`Error converting ${resolution.outputFile}:`, err);
             })
             .run();

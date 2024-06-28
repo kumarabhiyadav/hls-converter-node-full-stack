@@ -28,6 +28,13 @@ function uploadFileToS3(filePath, bucketName, uploadPath, id) {
     return __awaiter(this, void 0, void 0, function* () {
         return new Promise((resolve, reject) => {
             const fileStream = fs_1.default.createReadStream(filePath);
+            fs_1.default.stat(filePath, (err, stats) => {
+                if (err) {
+                    console.error(`Error fetching file stats: ${err.message}`);
+                    return;
+                }
+                console.log(`File size: ${stats.size} bytes`);
+            });
             const uploadParams = {
                 Bucket: bucketName,
                 Key: uploadPath,

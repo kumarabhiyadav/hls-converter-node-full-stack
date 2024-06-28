@@ -19,6 +19,20 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
   return new Promise((resolve, reject) => {
     const fileStream = fs.createReadStream(filePath);
 
+    fs.stat(filePath, (err, stats) => {
+      if (err) {
+          console.error(`Error fetching file stats: ${err.message}`);
+          return;
+      }
+      
+      console.log(`File size: ${stats.size} bytes`);
+  
+
+    
+  });
+
+    
+
     const uploadParams = {
       Bucket: bucketName,
       Key: uploadPath,
@@ -34,7 +48,6 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
   })
     .then((data: any) => {
       console.log(data.Location);
-
       let url: string = data.Location;
 
       if (url.includes('playlist.m3u8')) {
@@ -128,7 +141,10 @@ export async function uploadFolderToS3(folderPath: string, bucketName: string, w
         db.update({
           _id: id
         }, { $set: { 'status': 'uploadedtos3' } })
+
+
         await uploadFileToS3(filePath, bucketName, path, id);
+        
         ws.send(JSON.stringify({ status: 'fileupload', message: `uploading files to s3 ${i}/${length}` }));
       }
 

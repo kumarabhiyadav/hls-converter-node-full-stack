@@ -83,7 +83,7 @@ wss.on('connection', (ws, req) => {
                                         return console.error(`Error creating directory: ${err.message}`);
                                     }
                                 });
-                                yield convertVideo(filePath, outputdir, ws);
+                                yield convertVideo(filePath, outputdir, ws, docs[0]._id);
                                 db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
                                 ws.send(JSON.stringify({ status: 'converting', message: 'Video conversion completed' }));
                                 fs_1.default.mkdir(outputdir + '/download/', { recursive: true }, (err) => {
@@ -92,13 +92,14 @@ wss.on('connection', (ws, req) => {
                                     }
                                 });
                                 yield generatePlaylist(outputdir);
-                                yield convertToMultipleResolutions(filePath, outputdir + '/download/', ws);
+                                yield convertToMultipleResolutions(filePath, outputdir + '/download/', ws, docs[0]._id);
                                 db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } });
                                 yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', ws, docs[0]['_id']);
                                 yield (0, s3Upload_1.uploadFolderToS3)(outputdir + '/download/', (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : '', ws, docs[0]['_id']);
                             }
                             catch (error) {
                                 console.error('Error converting video:', error);
+                                db.update({ _id: docs[0]._id }, { $set: { 'error': error.message } });
                                 ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
                             }
                         }
@@ -118,7 +119,7 @@ wss.on('connection', (ws, req) => {
         console.log('Client disconnected');
     });
 });
-function convertVideo(inputFilePath, outputDir, ws) {
+function convertVideo(inputFilePath, outputDir, ws, id) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log("input :" + inputFilePath);
         console.log("out :" + outputDir);
@@ -209,6 +210,8 @@ function convertVideo(inputFilePath, outputDir, ws) {
                 }));
             })
                 .on('error', (err) => {
+                let db = db_service_1.default.getInstance();
+                db.update({ _id: id }, { $set: { 'error': err.message } });
                 console.error('ffmpeg error:', err);
                 reject(err);
             })
@@ -243,7 +246,7 @@ function generatePlaylist(outputDir) {
         });
     });
 }
-function convertToMultipleResolutions(inputFile, outputDir, ws) {
+function convertToMultipleResolutions(inputFile, outputDir, ws, id) {
     return __awaiter(this, void 0, void 0, function* () {
         const resolutions = [
             { width: 320, outputFile: 'low.mp4', bitrate: '1000k' },
@@ -269,6 +272,8 @@ function convertToMultipleResolutions(inputFile, outputDir, ws) {
                 }));
             })
                 .on('error', (err) => {
+                let db = db_service_1.default.getInstance();
+                db.update({ _id: id }, { $set: { 'error': err.message } });
                 console.error(`Error converting ${resolution.outputFile}:`, err);
             })
                 .run();
