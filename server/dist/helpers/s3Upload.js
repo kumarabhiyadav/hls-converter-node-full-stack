@@ -43,6 +43,7 @@ function uploadFileToS3(filePath, bucketName, uploadPath, id) {
             });
         })
             .then((data) => {
+            console.log(data.Location);
             let url = data.Location;
             if (url.includes('playlist.m3u8')) {
                 let db = db_service_1.default.getInstance();

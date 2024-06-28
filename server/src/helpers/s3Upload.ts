@@ -33,7 +33,7 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
     });
   })
     .then((data: any) => {
-      // console.log(data.Location);
+      console.log(data.Location);
 
       let url: string = data.Location;
 
