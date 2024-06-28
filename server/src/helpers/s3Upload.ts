@@ -74,7 +74,8 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
         }, { $set: { 'low': url } })
         db.find({ _id: id }).exec((err, docs) => {
           let video =  docs[0];
-           mysqldbService.query('UPDATE hls_videos_status SET low = ? status= ? WHERE ulid = ?',[url,'converted',video.ulid]).then((result:any)=>{
+           mysqldbService.query(  'UPDATE hls_videos_status SET low = ?, status = ? WHERE ulid = ?',
+            [url, 'converted', video.ulid],).then((result:any)=>{
              console.log("UPDATED IN MYSQL DB LOW");
            });
    
@@ -89,8 +90,9 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
 
         db.find({ _id: id }).exec((err, docs) => {
           let video =  docs[0];
-           mysqldbService.query('UPDATE hls_videos_status SET med = ? WHERE ulid = ?',[url,video.ulid]).then((result:any)=>{
-             console.log("UPDATED IN MYSQL DB MED");
+           mysqldbService.query(  'UPDATE hls_videos_status SET low = ? WHERE ulid = ?',
+            [url, video.ulid],).then((result:any)=>{
+             console.log("UPDATED IN MYSQL DB LOW");
            });
    
          })
