@@ -1,0 +1,3 @@
+class ConverterService {
+    constructor() { }
+}
