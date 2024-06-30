@@ -165,7 +165,7 @@ const History: React.FC = () => {
                   textAlign: "left",
                 }}
               >
-                {e.state}
+                {e.status}
               </td>
               <td
                 style={{
