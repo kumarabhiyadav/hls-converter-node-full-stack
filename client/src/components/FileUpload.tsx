@@ -54,8 +54,13 @@ const FileUpload: React.FC = () => {
         if (message.status === 'progress') {
           setProgress(Math.floor((currentChunk / totalChunks) * 100));
         } else if (message.status === 'completed') {
+
           setUploadStatus('Upload completed successfully.');
           setProgress(100);
+
+          setTimeout(()=>{
+            window.location.reload();
+          },1000)
         } else if (message.status === 'error') {
           setUploadStatus(`Upload error: ${message.message}`);
         }
