@@ -17,6 +17,9 @@ console.log(port)
 app.use(cors({ origin: '*' }));
 import ffmpeg from 'fluent-ffmpeg';
 import { uploadFolderToS3 } from "./helpers/s3Upload";
+import { currentFiles, tableName } from "./service/state";
+import { log } from "console";
+import mysqldbService from "./service/mysqldb.service";
 
 app.use(express.json({ limit: "5000mb" }));
 
@@ -60,86 +63,63 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (message) => {
         if (Buffer.isBuffer(message)) {
             let reqPath = req.url;
+            let currentFile = currentFiles.find((e) => e.uniqId === reqPath?.replace('/', ''));
+            if (!currentFile) {
+                ws.close();
+                return;
+            }
 
             fileBuffer.push(message);
             totalLength += message.length;
 
-            let db = DataStore.getInstance();
+            const filePath = path.join(uploadsDir, currentFile.file);
 
-            db.find({ ulid: reqPath }).exec((err, docs) => {
-                if (err) {
-                    console.error('Error querying database:', err);
-                    ws.send('Error querying database');
-                    return;
-                }
+            if (message.length < 1048576) {
+                const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
 
-                if (docs.length === 0) {
-                    console.error('Document with ulid not found:', reqPath);
-                    ws.send('Document not found');
-                    return;
-                }
-
-                const filename = docs[0].filename;
-
-                const filePath = path.join(uploadsDir, filename);
-
-                if (message.length < 1048576) {
-                    const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
-
-                    fs.writeFile(filePath, combinedBuffer, async (err) => {
-                        if (err) {
-                            console.error('Error writing file:', err);
-                            ws.send('Error writing file');
-                        } else {
-                            // console.log('File saved successfully:', filePath);
-
-                            db.update({ ulid: reqPath }, { $set: { state: 'uploaded' } }, {});
-
-                            ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
-
-                            try {
-                                let outputdir = converted + '/' + docs[0].filename.split('.').slice(0, -1).join('.');
-
-                                fs.mkdir(outputdir, { recursive: true }, (err) => {
-                                    if (err) {
-                                        return console.error(`Error creating directory: ${err.message}`);
-                                    }
-                                    // console.log('Directory created successfully!');
-                                });
-                                await convertVideo(filePath, outputdir, ws, docs[0]._id);
-
-                                db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
-
-                                ws.send(JSON.stringify({ status: 'converting', message: 'Video conversion completed' }));
-                                fs.mkdir(outputdir + '/download/', { recursive: true }, (err) => {
-                                    if (err) {
-                                        return console.error(`Error creating directory: ${err.message}`);
-                                    }
-                                    // console.log('Directory created successfully!');
-                                });
+                fs.writeFile(filePath, combinedBuffer, async (err) => {
+                    if (err) {
+                        console.error('Error writing file:', err);
+                        ws.send('Error writing file');
+                    } else {
+                        ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
+                        ws.send(JSON.stringify({ status: 'converting', message: 'File Upload is completed, Converting file...' }));
+                        if (currentFile) {
+                            ws.close()
+                            currentFile = currentFiles.find((e) => e.uniqId === reqPath?.replace('/', ''));
+                            if (currentFile) {
+                                let outputdir = converted + '/' + currentFile!.file.split('.').slice(0, -1).join('.');
+                                console.log(outputdir)
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['converting HLS', currentFile!.uniqId])
+                                await convertVideo(filePath, outputdir, currentFile!.uniqId)
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['creating playlist.m3u8', currentFile!.uniqId])
                                 await generatePlaylist(outputdir);
-                                await convertToMultipleResolutions(filePath, outputdir + '/download/', ws, docs[0]._id);
-
-                                db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } })
-
-
-                                await uploadFolderToS3(outputdir, process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
-                                await uploadFolderToS3(outputdir + '/download/', process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
-                            } catch (error) {
-                                console.error('Error converting video:', error);
-                                db.update({ _id: docs[0]._id }, { $set: { 'error': error.message } })
-
-                                ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['converting download files', currentFile!.uniqId])
+                                await convertToMultipleResolutions(filePath, outputdir + '/download/', currentFile!.uniqId);
+                                console.log("Uploading...")
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['Uploading HLS to s3', currentFile!.uniqId])
+                                await uploadFolderToS3(outputdir, process.env.S3_BUCKET ?? '', currentFile!.uniqId);
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['Uploading Downloadfile to s3', currentFile!.uniqId])
+                                await uploadFolderToS3(outputdir+'/download/', process.env.S3_BUCKET ?? '', currentFile!.uniqId);
+                                mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['uploaded to S3', currentFile!.uniqId])
+                                return;
                             }
                         }
-                    });
-                } else {
-                    // Send progress update for chunk received
-                    ws.send(JSON.stringify({ status: 'progress', message: 'Chunk received' }));
-                }
-            });
+
+                        try {
+
+                        } catch (error) {
+
+                            ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
+                        }
+                    }
+                });
+            } else {
+
+                ws.send(JSON.stringify({ status: 'progress', message: 'Chunk received' }));
+            }
+
         } else {
-            // Handle text message (if any)
             console.log('Received text message:', message);
             ws.send('Echo: ' + message); // Example echo response
         }
@@ -151,109 +131,87 @@ wss.on('connection', (ws, req) => {
 });
 
 
-
-async function convertVideo(inputFilePath: string, outputDir: string, ws: any, id: string): Promise<void> {
-    console.log("input :" + inputFilePath);
-    console.log("out :" + outputDir);
-
-    return new Promise((resolve, reject) => {
-        ffmpeg(inputFilePath)
-            .inputOptions('-v debug')  // Enable verbose logging
-            // 360p
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .audioFrequency(48000)
-            .size('640x?')
-            .aspect('16:9')
-            .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 800k',
-                '-maxrate 856k',
-                '-bufsize 1200k',
-                '-b:a 96k',
-                `-hls_segment_filename ${outputDir}/360p_%03d.ts`
-            ])
-            .output(`${outputDir}/360p.m3u8`)
-            // 480p
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .audioFrequency(48000)
-            .size('842x?')
-            .aspect('16:9')
-            .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 1400k',
-                '-maxrate 1498k',
-                '-bufsize 2100k',
-                '-b:a 128k',
-                `-hls_segment_filename ${outputDir}/480p_%03d.ts`
-            ])
-            .output(`${outputDir}/480p.m3u8`)
-            // 720p
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .audioFrequency(48000)
-            .size('1280x?')
-            .aspect('16:9')
-            .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 2800k',
-                '-maxrate 2996k',
-                '-bufsize 4200k',
-                '-b:a 128k',
-                `-hls_segment_filename ${outputDir}/720p_%03d.ts`
-            ])
-            .output(`${outputDir}/720p.m3u8`)
-            // 1080p
-            .videoCodec('libx264')
-            .audioCodec('aac')
-            .audioFrequency(48000)
-            .size('1920x?')
-            .aspect('16:9')
-            .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 5000k',
-                '-maxrate 5350k',
-                '-bufsize 7500k',
-                '-b:a 192k',
-                `-hls_segment_filename ${outputDir}/1080p_%03d.ts`
-            ])
-            .output(`${outputDir}/1080p.m3u8`)
-            .on('end', () => resolve())
-            .on('progress', (progress) => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Converting to HLS : ${progress.percent.toFixed(2)}% done`
-                }));
-            })
-            .on('error', (err: any) => {
-                let db = DataStore.getInstance();
-                db.update({ _id: id }, { $set: { 'error': err.message } })
-                console.error('ffmpeg error:', err);
-                reject(err);
-            })
-            .run();
+async function convertVideo(inputFilePath: string, outputDir: string, id: string): Promise<void> {
+    console.log("input: " + inputFilePath);
+    console.log("output: " + outputDir);
+    fs.mkdir(outputDir, { recursive: true }, (err) => {
+        if (err) {
+            return console.error(`Error creating directory: ${err.message}`);
+        }
+        console.log('Directory created successfully!');
     });
+
+    const resolutions = [
+        {
+            size: '640x?',
+            bitrate: '800k',
+            maxrate: '856k',
+            bufsize: '1200k',
+            audioBitrate: '96k',
+            segmentFilename: `${outputDir}/360p_%03d.ts`,
+            output: `${outputDir}/360p.m3u8`
+        },
+        {
+            size: '842x?',
+            bitrate: '1400k',
+            maxrate: '1498k',
+            bufsize: '2100k',
+            audioBitrate: '128k',
+            segmentFilename: `${outputDir}/480p_%03d.ts`,
+            output: `${outputDir}/480p.m3u8`
+        },
+        {
+            size: '1280x?',
+            bitrate: '2800k',
+            maxrate: '2996k',
+            bufsize: '4200k',
+            audioBitrate: '128k',
+            segmentFilename: `${outputDir}/720p_%03d.ts`,
+            output: `${outputDir}/720p.m3u8`
+        },
+        {
+            size: '1920x?',
+            bitrate: '5000k',
+            maxrate: '5350k',
+            bufsize: '7500k',
+            audioBitrate: '192k',
+            segmentFilename: `${outputDir}/1080p_%03d.ts`,
+            output: `${outputDir}/1080p.m3u8`
+        }
+    ];
+
+    await Promise.all(resolutions.map(resolution => {
+        return new Promise<void>((resolve, reject) => {
+            ffmpeg(inputFilePath)
+                .inputOptions('-v debug')  // Enable verbose logging
+                .videoCodec('libx264')
+                .audioCodec('aac')
+                .audioFrequency(48000)
+                .size(resolution.size)
+                .aspect('16:9')
+                .outputOptions([
+                    '-crf 20',
+                    '-sc_threshold 0',
+                    '-g 48',
+                    '-keyint_min 48',
+                    '-hls_time 4',
+                    '-hls_playlist_type vod',
+                    `-b:v ${resolution.bitrate}`,
+                    `-maxrate ${resolution.maxrate}`,
+                    `-bufsize ${resolution.bufsize}`,
+                    `-b:a ${resolution.audioBitrate}`,
+                    `-hls_segment_filename ${resolution.segmentFilename}`
+                ])
+                .output(resolution.output)
+                .on('end', () => resolve())
+                .on('progress', (progress) => {
+                })
+                .on('error', (err: any) => {
+                    console.error(err);
+                })
+                .run();
+        });
+    }));
 }
 
 
@@ -284,42 +242,55 @@ async function generatePlaylist(outputDir: string) {
 
 
 
-async function convertToMultipleResolutions(inputFile: string, outputDir: string, ws: any, id: string) {
-    // Define the resolutions and their corresponding output file names
+async function convertToMultipleResolutions(inputFile: string, outputDir: string, id: string): Promise<void> {
+    console.log("input: " + inputFile);
+    console.log("output: " + outputDir);
+    fs.mkdir(outputDir, { recursive: true }, (err) => {
+        if (err) {
+            return console.error(`Error creating directory: ${err.message}`);
+        }
+        console.log('Directory for download created successfully!');
+    });
+   
     const resolutions = [
         { width: 320, outputFile: 'low.mp4', bitrate: '1000k' },
         { width: 840, outputFile: 'med.mp4', bitrate: '3000k' },
         { width: 1280, outputFile: 'high.mp4', bitrate: '5000k' }
     ];
 
-    // Iterate through each resolution and convert the video
-    resolutions.forEach(resolution => {
-        ffmpeg(inputFile)
-            .outputOptions(`-vf`, `scale=w=${resolution.width}:h=-2`)
-            .outputOptions(`-c:v`, `h264`)
-            .outputOptions(`-profile:v`, `main`)
-            .outputOptions(`-b:v`, resolution.bitrate)
-            .output(path.join(outputDir, resolution.outputFile))
-            .on('end', () => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Download file has been Converted`
-                }));
-            }).on('progress', (progress) => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Converting to for downloadfile ${resolution.outputFile} : ${progress.percent.toFixed(2)}% done`
-                }));
-            })
-            .on('error', (err) => {
+    // Create an array of promises for each resolution conversion
+    const conversionPromises = resolutions.map(resolution => {
+        return new Promise<void>((resolve, reject) => {
+            ffmpeg(inputFile)
+                .outputOptions('-vf', `scale=w=${resolution.width}:h=-2`)
+                .outputOptions('-c:v', 'h264')
+                .outputOptions('-profile:v', 'main')
+                .outputOptions('-b:v', resolution.bitrate)
+                .output(path.join(outputDir, resolution.outputFile))
+                .on('end', () => {
 
-                let db = DataStore.getInstance();
+                    resolve();
+                })
+                .on('progress', (progress) => {
 
-                db.update({ _id: id }, { $set: { 'error': err.message } })
+                    // console.log("Converting download");
 
+                })
+                .on('error', (err) => {
 
-                console.error(`Error converting ${resolution.outputFile}:`, err);
-            })
-            .run();
+                })
+                .run();
+        });
     });
+
+    // Run all the conversions in parallel and wait for them to complete
+    try {
+        await Promise.all(conversionPromises);
+        mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['converted Download files', id]);
+
+    } catch (err) {
+
+        mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['failed to convert' + err.message, id]);
+        console.error('One or more conversions failed:', err);
+    }
 }

@@ -22,13 +22,14 @@ app.use((0, express_fileupload_1.default)());
 const conversion_controller_1 = require("./controllers/conversion.controller");
 const ws_1 = require("ws");
 const path_1 = __importDefault(require("path"));
-const db_service_1 = __importDefault(require("./service/db.service"));
 dotenv_1.default.config();
 const port = process.env.PORT;
 console.log(port);
 app.use((0, cors_1.default)({ origin: '*' }));
 const fluent_ffmpeg_1 = __importDefault(require("fluent-ffmpeg"));
 const s3Upload_1 = require("./helpers/s3Upload");
+const state_1 = require("./service/state");
+const mysqldb_service_1 = __importDefault(require("./service/mysqldb.service"));
 app.use(express_1.default.json({ limit: "5000mb" }));
 const uploadsDir = path_1.default.join(__dirname, '..', 'uploads');
 const converted = path_1.default.join(__dirname, '..', 'converted');
@@ -49,66 +50,57 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (message) => {
         if (Buffer.isBuffer(message)) {
             let reqPath = req.url;
+            let currentFile = state_1.currentFiles.find((e) => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace('/', '')));
+            if (!currentFile) {
+                ws.close();
+                return;
+            }
             fileBuffer.push(message);
             totalLength += message.length;
-            let db = db_service_1.default.getInstance();
-            db.find({ ulid: reqPath }).exec((err, docs) => {
-                if (err) {
-                    console.error('Error querying database:', err);
-                    ws.send('Error querying database');
-                    return;
-                }
-                if (docs.length === 0) {
-                    console.error('Document with ulid not found:', reqPath);
-                    ws.send('Document not found');
-                    return;
-                }
-                const filename = docs[0].filename;
-                const filePath = path_1.default.join(uploadsDir, filename);
-                if (message.length < 1048576) {
-                    const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
-                    fs_1.default.writeFile(filePath, combinedBuffer, (err) => __awaiter(void 0, void 0, void 0, function* () {
-                        var _a, _b;
-                        if (err) {
-                            console.error('Error writing file:', err);
-                            ws.send('Error writing file');
-                        }
-                        else {
-                            db.update({ ulid: reqPath }, { $set: { state: 'uploaded' } }, {});
-                            ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
-                            try {
-                                let outputdir = converted + '/' + docs[0].filename.split('.').slice(0, -1).join('.');
-                                fs_1.default.mkdir(outputdir, { recursive: true }, (err) => {
-                                    if (err) {
-                                        return console.error(`Error creating directory: ${err.message}`);
-                                    }
-                                });
-                                yield convertVideo(filePath, outputdir, ws, docs[0]._id);
-                                db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
-                                ws.send(JSON.stringify({ status: 'converting', message: 'Video conversion completed' }));
-                                fs_1.default.mkdir(outputdir + '/download/', { recursive: true }, (err) => {
-                                    if (err) {
-                                        return console.error(`Error creating directory: ${err.message}`);
-                                    }
-                                });
+            const filePath = path_1.default.join(uploadsDir, currentFile.file);
+            if (message.length < 1048576) {
+                const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
+                fs_1.default.writeFile(filePath, combinedBuffer, (err) => __awaiter(void 0, void 0, void 0, function* () {
+                    var _a, _b;
+                    if (err) {
+                        console.error('Error writing file:', err);
+                        ws.send('Error writing file');
+                    }
+                    else {
+                        ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
+                        ws.send(JSON.stringify({ status: 'converting', message: 'File Upload is completed, Converting file...' }));
+                        if (currentFile) {
+                            ws.close();
+                            currentFile = state_1.currentFiles.find((e) => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace('/', '')));
+                            if (currentFile) {
+                                let outputdir = converted + '/' + currentFile.file.split('.').slice(0, -1).join('.');
+                                console.log(outputdir);
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['converting HLS', currentFile.uniqId]);
+                                yield convertVideo(filePath, outputdir, currentFile.uniqId);
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['creating playlist.m3u8', currentFile.uniqId]);
                                 yield generatePlaylist(outputdir);
-                                yield convertToMultipleResolutions(filePath, outputdir + '/download/', ws, docs[0]._id);
-                                db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } });
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', ws, docs[0]['_id']);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir + '/download/', (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : '', ws, docs[0]['_id']);
-                            }
-                            catch (error) {
-                                console.error('Error converting video:', error);
-                                db.update({ _id: docs[0]._id }, { $set: { 'error': error.message } });
-                                ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['converting download files', currentFile.uniqId]);
+                                yield convertToMultipleResolutions(filePath, outputdir + '/download/', currentFile.uniqId);
+                                console.log("Uploading...");
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['Uploading HLS to s3', currentFile.uniqId]);
+                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : '', currentFile.uniqId);
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['Uploading Downloadfile to s3', currentFile.uniqId]);
+                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir + '/download/', (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : '', currentFile.uniqId);
+                                mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['uploaded to S3', currentFile.uniqId]);
+                                return;
                             }
                         }
-                    }));
-                }
-                else {
-                    ws.send(JSON.stringify({ status: 'progress', message: 'Chunk received' }));
-                }
-            });
+                        try {
+                        }
+                        catch (error) {
+                            ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
+                        }
+                    }
+                }));
+            }
+            else {
+                ws.send(JSON.stringify({ status: 'progress', message: 'Chunk received' }));
+            }
         }
         else {
             console.log('Received text message:', message);
@@ -119,104 +111,86 @@ wss.on('connection', (ws, req) => {
         console.log('Client disconnected');
     });
 });
-function convertVideo(inputFilePath, outputDir, ws, id) {
+function convertVideo(inputFilePath, outputDir, id) {
     return __awaiter(this, void 0, void 0, function* () {
-        console.log("input :" + inputFilePath);
-        console.log("out :" + outputDir);
-        return new Promise((resolve, reject) => {
-            (0, fluent_ffmpeg_1.default)(inputFilePath)
-                .inputOptions('-v debug')
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioFrequency(48000)
-                .size('640x?')
-                .aspect('16:9')
-                .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 800k',
-                '-maxrate 856k',
-                '-bufsize 1200k',
-                '-b:a 96k',
-                `-hls_segment_filename ${outputDir}/360p_%03d.ts`
-            ])
-                .output(`${outputDir}/360p.m3u8`)
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioFrequency(48000)
-                .size('842x?')
-                .aspect('16:9')
-                .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 1400k',
-                '-maxrate 1498k',
-                '-bufsize 2100k',
-                '-b:a 128k',
-                `-hls_segment_filename ${outputDir}/480p_%03d.ts`
-            ])
-                .output(`${outputDir}/480p.m3u8`)
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioFrequency(48000)
-                .size('1280x?')
-                .aspect('16:9')
-                .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 2800k',
-                '-maxrate 2996k',
-                '-bufsize 4200k',
-                '-b:a 128k',
-                `-hls_segment_filename ${outputDir}/720p_%03d.ts`
-            ])
-                .output(`${outputDir}/720p.m3u8`)
-                .videoCodec('libx264')
-                .audioCodec('aac')
-                .audioFrequency(48000)
-                .size('1920x?')
-                .aspect('16:9')
-                .outputOptions([
-                '-crf 20',
-                '-sc_threshold 0',
-                '-g 48',
-                '-keyint_min 48',
-                '-hls_time 4',
-                '-hls_playlist_type vod',
-                '-b:v 5000k',
-                '-maxrate 5350k',
-                '-bufsize 7500k',
-                '-b:a 192k',
-                `-hls_segment_filename ${outputDir}/1080p_%03d.ts`
-            ])
-                .output(`${outputDir}/1080p.m3u8`)
-                .on('end', () => resolve())
-                .on('progress', (progress) => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Converting to HLS : ${progress.percent.toFixed(2)}% done`
-                }));
-            })
-                .on('error', (err) => {
-                let db = db_service_1.default.getInstance();
-                db.update({ _id: id }, { $set: { 'error': err.message } });
-                console.error('ffmpeg error:', err);
-                reject(err);
-            })
-                .run();
+        console.log("input: " + inputFilePath);
+        console.log("output: " + outputDir);
+        fs_1.default.mkdir(outputDir, { recursive: true }, (err) => {
+            if (err) {
+                return console.error(`Error creating directory: ${err.message}`);
+            }
+            console.log('Directory created successfully!');
         });
+        const resolutions = [
+            {
+                size: '640x?',
+                bitrate: '800k',
+                maxrate: '856k',
+                bufsize: '1200k',
+                audioBitrate: '96k',
+                segmentFilename: `${outputDir}/360p_%03d.ts`,
+                output: `${outputDir}/360p.m3u8`
+            },
+            {
+                size: '842x?',
+                bitrate: '1400k',
+                maxrate: '1498k',
+                bufsize: '2100k',
+                audioBitrate: '128k',
+                segmentFilename: `${outputDir}/480p_%03d.ts`,
+                output: `${outputDir}/480p.m3u8`
+            },
+            {
+                size: '1280x?',
+                bitrate: '2800k',
+                maxrate: '2996k',
+                bufsize: '4200k',
+                audioBitrate: '128k',
+                segmentFilename: `${outputDir}/720p_%03d.ts`,
+                output: `${outputDir}/720p.m3u8`
+            },
+            {
+                size: '1920x?',
+                bitrate: '5000k',
+                maxrate: '5350k',
+                bufsize: '7500k',
+                audioBitrate: '192k',
+                segmentFilename: `${outputDir}/1080p_%03d.ts`,
+                output: `${outputDir}/1080p.m3u8`
+            }
+        ];
+        yield Promise.all(resolutions.map(resolution => {
+            return new Promise((resolve, reject) => {
+                (0, fluent_ffmpeg_1.default)(inputFilePath)
+                    .inputOptions('-v debug')
+                    .videoCodec('libx264')
+                    .audioCodec('aac')
+                    .audioFrequency(48000)
+                    .size(resolution.size)
+                    .aspect('16:9')
+                    .outputOptions([
+                    '-crf 20',
+                    '-sc_threshold 0',
+                    '-g 48',
+                    '-keyint_min 48',
+                    '-hls_time 4',
+                    '-hls_playlist_type vod',
+                    `-b:v ${resolution.bitrate}`,
+                    `-maxrate ${resolution.maxrate}`,
+                    `-bufsize ${resolution.bufsize}`,
+                    `-b:a ${resolution.audioBitrate}`,
+                    `-hls_segment_filename ${resolution.segmentFilename}`
+                ])
+                    .output(resolution.output)
+                    .on('end', () => resolve())
+                    .on('progress', (progress) => {
+                })
+                    .on('error', (err) => {
+                    console.error(err);
+                })
+                    .run();
+            });
+        }));
     });
 }
 function generatePlaylist(outputDir) {
@@ -246,37 +220,46 @@ function generatePlaylist(outputDir) {
         });
     });
 }
-function convertToMultipleResolutions(inputFile, outputDir, ws, id) {
+function convertToMultipleResolutions(inputFile, outputDir, id) {
     return __awaiter(this, void 0, void 0, function* () {
+        console.log("input: " + inputFile);
+        console.log("output: " + outputDir);
+        fs_1.default.mkdir(outputDir, { recursive: true }, (err) => {
+            if (err) {
+                return console.error(`Error creating directory: ${err.message}`);
+            }
+            console.log('Directory for download created successfully!');
+        });
         const resolutions = [
             { width: 320, outputFile: 'low.mp4', bitrate: '1000k' },
             { width: 840, outputFile: 'med.mp4', bitrate: '3000k' },
             { width: 1280, outputFile: 'high.mp4', bitrate: '5000k' }
         ];
-        resolutions.forEach(resolution => {
-            (0, fluent_ffmpeg_1.default)(inputFile)
-                .outputOptions(`-vf`, `scale=w=${resolution.width}:h=-2`)
-                .outputOptions(`-c:v`, `h264`)
-                .outputOptions(`-profile:v`, `main`)
-                .outputOptions(`-b:v`, resolution.bitrate)
-                .output(path_1.default.join(outputDir, resolution.outputFile))
-                .on('end', () => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Download file has been Converted`
-                }));
-            }).on('progress', (progress) => {
-                ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: `Converting to for downloadfile ${resolution.outputFile} : ${progress.percent.toFixed(2)}% done`
-                }));
-            })
-                .on('error', (err) => {
-                let db = db_service_1.default.getInstance();
-                db.update({ _id: id }, { $set: { 'error': err.message } });
-                console.error(`Error converting ${resolution.outputFile}:`, err);
-            })
-                .run();
+        const conversionPromises = resolutions.map(resolution => {
+            return new Promise((resolve, reject) => {
+                (0, fluent_ffmpeg_1.default)(inputFile)
+                    .outputOptions('-vf', `scale=w=${resolution.width}:h=-2`)
+                    .outputOptions('-c:v', 'h264')
+                    .outputOptions('-profile:v', 'main')
+                    .outputOptions('-b:v', resolution.bitrate)
+                    .output(path_1.default.join(outputDir, resolution.outputFile))
+                    .on('end', () => {
+                    resolve();
+                })
+                    .on('progress', (progress) => {
+                })
+                    .on('error', (err) => {
+                })
+                    .run();
+            });
         });
+        try {
+            yield Promise.all(conversionPromises);
+            mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['converted Download files', id]);
+        }
+        catch (err) {
+            mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['failed to convert' + err.message, id]);
+            console.error('One or more conversions failed:', err);
+        }
     });
 }

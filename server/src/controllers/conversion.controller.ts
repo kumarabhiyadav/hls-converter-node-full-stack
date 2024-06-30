@@ -1,18 +1,17 @@
 import { ulid } from "ulid";
 import { tryCatchFn } from "../helpers/tryCatch";
 import { Request, Response } from "express";
-import DataStore from "../service/db.service";
 import mysqldbService from "../service/mysqldb.service";
+import { currentFiles, tableName } from "../service/state";
 
 
 export const createWebSocketForFile = tryCatchFn(async (req: Request, res: Response) => {
-    let path = "/" + ulid();
-    let db = DataStore.getInstance();
-    db.insert({ulid:path,state:'initiate',filename:req.body.filename})
-    mysqldbService.query('INSERT INTO hls_videos_status (video_name,ulid) VALUES (?,?)',[req.body.filename,path]).then((result:any)=>{
-      console.log(result);
-    });
-    return res.status(200).json({ path });
+  let uniqId = ulid();
+  mysqldbService.query(`INSERT INTO ${tableName} (filename,uniqid) VALUES (?,?)`, [req.body.filename, uniqId]).then((result: any) => {
+    console.log(result);
+  });
+  currentFiles.push({'file':req.body.filename,uniqId:uniqId})
+  return res.status(200).json({ uniqId:"/"+uniqId });
 });
 
 export const uploadVideo = tryCatchFn(async (req: Request, res: Response) => {
@@ -28,16 +27,13 @@ export const uploadVideo = tryCatchFn(async (req: Request, res: Response) => {
 export const history = tryCatchFn(async (req: Request, res: Response) => {
 
 
-    let db = DataStore.getInstance();
+  mysqldbService.query(`SELECT * FROM ${tableName} ORDER BY created_at DESC`, []).then((result: any) => {
 
-    db.find({})
-    .sort({ createdAt: -1 })
-    .exec((err, docs) => {
-      if (err) {
-        res.status(500).send(err);
-      } else {
-        res.status(200).send(docs);
-      }
-    });
+    res.status(200).send(result);
+
+  }).catch((error: any) => {
+
+    res.status(500).send(error);
+  });
 
 });

@@ -25,7 +25,7 @@ const FileUpload: React.FC = () => {
       const response = await axios.post(`${domain}${endpoint.createWebSocketForFile}`, {
         filename: file.name
       });
-      const path = response.data.path;
+      const path = response.data.uniqId;
 
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
       let currentChunk = 0;

@@ -1,8 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import AWS from 'aws-sdk';
-import DataStore from '../service/db.service';
 import mysqldbService from '../service/mysqldb.service';
+import { tableName } from '../service/state';
 
 // Set up AWS credentials and region
 AWS.config.update({
@@ -12,7 +12,11 @@ AWS.config.update({
 });
 
 // Create S3 instance
-const s3 = new AWS.S3();
+const s3 = new AWS.S3({
+  httpOptions: {
+    timeout: 600000, // Set timeout to 10 minutes (600,000 ms)
+},
+});
 
 // Function to upload a file to S3
 async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: string, id: string): Promise<void> {
@@ -36,7 +40,8 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
     const uploadParams = {
       Bucket: bucketName,
       Key: uploadPath,
-      Body: fileStream
+      Body: fileStream,
+      
     };
     s3.upload(uploadParams, (err: any, data: AWS.S3.ManagedUpload.SendData) => {
       if (err) {
@@ -51,73 +56,39 @@ async function uploadFileToS3(filePath: string, bucketName: string, uploadPath: 
       let url: string = data.Location;
 
       if (url.includes('playlist.m3u8')) {
-        let db = DataStore.getInstance();
-        db.update({
-          _id: id
-        }, { $set: { 'mainurl': url,state: 'converted' } })
-
-        db.find({ _id: id }).exec((err, docs) => {
-         let video =  docs[0];
-          mysqldbService.query('UPDATE hls_videos_status SET mainurl = ? WHERE ulid = ?',[url,video.ulid]).then((result:any)=>{
-            console.log("UPDATED IN MYSQL DB");
+  
+          mysqldbService.query(`UPDATE ${tableName}  SET mainurl = ? WHERE uniqid = ?`,[url,id]).then((result:any)=>{
+            console.log("playlist.m3u8 uploaded to s3"+id);
           });
   
-        })
       }
 
       if (url.includes('high.mp4')) {
-        let db = DataStore.getInstance();
-        db.update({
-          _id: id
-        }, { $set: { 'high': url } })
 
-        db.find({ _id: id }).exec((err, docs) => {
-          let video =  docs[0];
-           mysqldbService.query('UPDATE hls_videos_status SET high = ? WHERE ulid = ?',[url,video.ulid]).then((result:any)=>{
-             console.log("UPDATED IN MYSQL DB HIGH");
-           });
-   
-         })
+        mysqldbService.query(`UPDATE ${tableName}  SET high = ? WHERE uniqid = ?`,[url,id]).then((result:any)=>{
+          console.log("High uploaded to s3"+id);
+        });
+
       }
 
       if (url.includes('low.mp4')) {
-        let db = DataStore.getInstance();
-        db.update({
-          _id: id
-        }, { $set: { 'low': url } })
-        db.find({ _id: id }).exec((err, docs) => {
-          let video =  docs[0];
-           mysqldbService.query(  'UPDATE hls_videos_status SET low = ?, status = ? WHERE ulid = ?',
-            [url, 'converted', video.ulid],).then((result:any)=>{
-             console.log("UPDATED IN MYSQL DB LOW");
-           });
-   
-         })
+        mysqldbService.query(`UPDATE ${tableName}  SET low = ? WHERE uniqid = ?`,[url,id]).then((result:any)=>{
+          console.log("LOW uploaded to s3"+id);
+        });
       }
 
       if (url.includes('med.mp4')) {
-        let db = DataStore.getInstance();
-        db.update({
-          _id: id
-        }, { $set: { 'med': url } })
-
-        db.find({ _id: id }).exec((err, docs) => {
-          let video =  docs[0];
-           mysqldbService.query(  'UPDATE hls_videos_status SET low = ? WHERE ulid = ?',
-            [url, video.ulid],).then((result:any)=>{
-             console.log("UPDATED IN MYSQL DB LOW");
-           });
-   
-         })
+        mysqldbService.query(`UPDATE ${tableName}  SET med = ? WHERE uniqid = ?`,[url,id]).then((result:any)=>{
+          console.log("MED uploaded to s3"+id);
+        });
       }
 
     })
 }
 
 // Function to upload a folder to S3 asynchronously
-export async function uploadFolderToS3(folderPath: string, bucketName: string, ws: any, id: string) {
+export async function uploadFolderToS3(folderPath: string, bucketName: string, id: string) {
   try {
-    let db = DataStore.getInstance();
 
 
     const files = fs.readdirSync(folderPath);
@@ -138,25 +109,25 @@ export async function uploadFolderToS3(folderPath: string, bucketName: string, w
           let index = filePath.split('/').indexOf('converted');
           path += filePath.split('/')[index + 1] + '/' + filePath.split('/')[index + 2] + '/' + filePath.split('/')[index + 3]
         }
-        db.update({
-          _id: id
-        }, { $set: { 'status': 'uploadedtos3' } })
-
-
+      
         await uploadFileToS3(filePath, bucketName, path, id);
         
-        ws.send(JSON.stringify({ status: 'fileupload', message: `uploading files to s3 ${i}/${length}` }));
+        
       }
+     
+
 
     }
 
     
 
+    
 
 
-    ws.send(JSON.stringify({ status: 'fileupload', message: `File Upload Completed` }));
+
 
   } catch (err) {
+    mysqldbService.query(`UPDATE  ${tableName} SET status = ? WHERE uniqid = ?`, ['failed to upload s3', id])
     console.error('Error reading folder or uploading files:', err);
   }
 }

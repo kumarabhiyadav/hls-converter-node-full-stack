@@ -15,29 +15,22 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.history = exports.uploadVideo = exports.createWebSocketForFile = void 0;
 const ulid_1 = require("ulid");
 const tryCatch_1 = require("../helpers/tryCatch");
-const db_service_1 = __importDefault(require("../service/db.service"));
 const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"));
+const state_1 = require("../service/state");
 exports.createWebSocketForFile = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    let path = "/" + (0, ulid_1.ulid)();
-    let db = db_service_1.default.getInstance();
-    db.insert({ ulid: path, state: 'initiate', filename: req.body.filename });
-    mysqldb_service_1.default.query('INSERT INTO hls_videos_status (video_name,ulid) VALUES (?,?)', [req.body.filename, path]).then((result) => {
+    let uniqId = (0, ulid_1.ulid)();
+    mysqldb_service_1.default.query(`INSERT INTO ${state_1.tableName} (filename,uniqid) VALUES (?,?)`, [req.body.filename, uniqId]).then((result) => {
         console.log(result);
     });
-    return res.status(200).json({ path });
+    state_1.currentFiles.push({ 'file': req.body.filename, uniqId: uniqId });
+    return res.status(200).json({ uniqId: "/" + uniqId });
 }));
 exports.uploadVideo = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
 }));
 exports.history = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
-    let db = db_service_1.default.getInstance();
-    db.find({})
-        .sort({ createdAt: -1 })
-        .exec((err, docs) => {
-        if (err) {
-            res.status(500).send(err);
-        }
-        else {
-            res.status(200).send(docs);
-        }
+    mysqldb_service_1.default.query(`SELECT * FROM ${state_1.tableName} ORDER BY created_at DESC`, []).then((result) => {
+        res.status(200).send(result);
+    }).catch((error) => {
+        res.status(500).send(error);
     });
 }));
