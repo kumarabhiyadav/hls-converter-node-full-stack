@@ -25,7 +25,7 @@ aws_sdk_1.default.config.update({
 });
 const s3 = new aws_sdk_1.default.S3({
     httpOptions: {
-        timeout: 600000,
+        timeout: 1800000,
     },
 });
 function uploadFileToS3(filePath, bucketName, uploadPath, id) {

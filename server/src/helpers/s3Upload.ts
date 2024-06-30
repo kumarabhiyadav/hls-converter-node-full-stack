@@ -14,7 +14,7 @@ AWS.config.update({
 // Create S3 instance
 const s3 = new AWS.S3({
   httpOptions: {
-    timeout: 600000, // Set timeout to 10 minutes (600,000 ms)
+    timeout: 1800000, // Set timeout to 10 minutes (600,000 ms)
 },
 });
 
