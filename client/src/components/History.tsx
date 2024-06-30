@@ -5,16 +5,33 @@ import { domain, endpoint } from "../api";
 const History: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);
 
-  function copyToClipboard(url: string) {
-    navigator.clipboard
-      .writeText(url)
-      .then(() => {
-        alert("URL copied to clipboard");
-      })
-      .catch((err) => {
-        console.error("Failed to copy: ", err);
-      });
-  }
+  const writeToClipboard = async (text:string) => {
+    if (navigator.clipboard && window.isSecureContext) {
+      // Clipboard API available and secure context
+      try {
+        await navigator.clipboard.writeText(text);
+        alert('Text copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to write to clipboard: ', err);
+      }
+    } else {
+      // Fallback method for HTTP or older browsers
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+
+      try {
+        document.execCommand('copy');
+        alert('Text copied to clipboard!');
+      } catch (err) {
+        console.error('Failed to copy text: ', err);
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
+  };
 
   const replaceString = (url: string): string => {
     return url.replace(
@@ -148,7 +165,7 @@ const History: React.FC = () => {
                   textAlign: "left",
                 }}
               >
-                {e.status}
+                {e.state}
               </td>
               <td
                 style={{
@@ -162,7 +179,7 @@ const History: React.FC = () => {
                     event.preventDefault();
                     if (e.mainurl) {
                       let url = replaceString(e.mainurl);
-                      copyToClipboard(url);
+                      writeToClipboard(url);
                     }
                   }}
                   href={e.mainurl ? replaceString(e.mainurl) : ""}
@@ -191,7 +208,7 @@ const History: React.FC = () => {
                     event.preventDefault();
                     if (e.high) {
                       let url = replaceString(e.high);
-                      copyToClipboard(url);
+                      writeToClipboard(url);
                     }
                   }}
                   href={e.high ? replaceString(e.high) : ""}
@@ -211,7 +228,7 @@ const History: React.FC = () => {
                     event.preventDefault();
                     if (e.low) {
                       let url = replaceString(e.low);
-                      copyToClipboard(url);
+                      writeToClipboard(url);
                     }
                   }}
                   href={e.low ? replaceString(e.low) : ""}
@@ -231,7 +248,7 @@ const History: React.FC = () => {
                     event.preventDefault();
                     if (e.med) {
                       let url = replaceString(e.med);
-                      copyToClipboard(url);
+                      writeToClipboard(url);
                     }
                   }}
                   href={e.med ? replaceString(e.med) : ""}
