@@ -17,7 +17,9 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const aws_sdk_1 = __importDefault(require("aws-sdk"));
 const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"));
+const mysqlbHLS_service_1 = __importDefault(require("../service/mysqlbHLS.service"));
 const state_1 = require("../service/state");
+const constant_1 = require("../service/constant");
 aws_sdk_1.default.config.update({
     accessKeyId: process.env.S3_KEY,
     secretAccessKey: process.env.S3_SECRET,
@@ -52,29 +54,76 @@ function uploadFileToS3(filePath, bucketName, uploadPath, id) {
                     resolve(data);
                 }
             });
-        })
-            .then((data) => {
+        }).then((data) => {
             console.log(data.Location);
             let url = data.Location;
-            if (url.includes('playlist.m3u8')) {
-                mysqldb_service_1.default.query(`UPDATE ${state_1.tableName}  SET mainurl = ? WHERE uniqid = ?`, [url, id]).then((result) => {
-                    console.log("playlist.m3u8 uploaded to s3" + id);
+            if (url.includes("playlist.m3u8")) {
+                mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {
+                    mysqldb_service_1.default
+                        .getInstance((0, constant_1.getDBName)(result[0]["platform"]))
+                        .query(`UPDATE ${state_1.tableName}  SET mainurl = ? WHERE uniqid = ?`, [
+                        url,
+                        id,
+                    ])
+                        .then((result) => {
+                        console.log("playlist.m3u8 uploaded to s3" + id);
+                    });
                 });
+                mysqlbHLS_service_1.default.query("UPDATE table  SET mainurl = ? WHERE uniqid = ?", [
+                    url,
+                    id,
+                ]);
             }
-            if (url.includes('high.mp4')) {
-                mysqldb_service_1.default.query(`UPDATE ${state_1.tableName}  SET high = ? WHERE uniqid = ?`, [url, id]).then((result) => {
-                    console.log("High uploaded to s3" + id);
+            if (url.includes("high.mp4")) {
+                mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {
+                    mysqldb_service_1.default
+                        .getInstance((0, constant_1.getDBName)(result[0]["platform"]))
+                        .query(`UPDATE ${state_1.tableName}  SET high = ? WHERE uniqid = ?`, [
+                        url,
+                        id,
+                    ])
+                        .then((result) => {
+                        console.log("high uploaded to s3" + id);
+                    });
                 });
+                mysqlbHLS_service_1.default.query("UPDATE table  SET high = ? WHERE uniqid = ?", [
+                    url,
+                    id,
+                ]);
             }
-            if (url.includes('low.mp4')) {
-                mysqldb_service_1.default.query(`UPDATE ${state_1.tableName}  SET low = ? WHERE uniqid = ?`, [url, id]).then((result) => {
-                    console.log("LOW uploaded to s3" + id);
+            if (url.includes("low.mp4")) {
+                mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {
+                    mysqldb_service_1.default
+                        .getInstance((0, constant_1.getDBName)(result[0]["platform"]))
+                        .query(`UPDATE ${state_1.tableName}  SET low = ? WHERE uniqid = ?`, [
+                        url,
+                        id,
+                    ])
+                        .then((result) => {
+                        console.log("low uploaded to s3" + id);
+                    });
                 });
+                mysqlbHLS_service_1.default.query("UPDATE table  SET low = ? WHERE uniqid = ?", [
+                    url,
+                    id,
+                ]);
             }
-            if (url.includes('med.mp4')) {
-                mysqldb_service_1.default.query(`UPDATE ${state_1.tableName}  SET med = ? WHERE uniqid = ?`, [url, id]).then((result) => {
-                    console.log("MED uploaded to s3" + id);
+            if (url.includes("med.mp4")) {
+                mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {
+                    mysqldb_service_1.default
+                        .getInstance((0, constant_1.getDBName)(result[0]["platform"]))
+                        .query(`UPDATE ${state_1.tableName}  SET med = ? WHERE uniqid = ?`, [
+                        url,
+                        id,
+                    ])
+                        .then((result) => {
+                        console.log("med uploaded to s3" + id);
+                    });
                 });
+                mysqlbHLS_service_1.default.query("UPDATE table  SET med = ? WHERE uniqid = ?", [
+                    url,
+                    id,
+                ]);
             }
         });
     });
@@ -82,29 +131,56 @@ function uploadFileToS3(filePath, bucketName, uploadPath, id) {
 function uploadFolderToS3(folderPath, bucketName, id) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            const files = fs_1.default.readdirSync(folderPath);
-            let length = files.length;
-            for (let i = 0; i < length; i++) {
-                const file = files[i];
-                const filePath = path_1.default.join(folderPath, file);
-                const stats = fs_1.default.statSync(filePath);
-                if (stats.isFile()) {
-                    let path = 'videos/';
-                    if (filePath.includes('.ts') || filePath.includes('.m3u8')) {
-                        let index = filePath.split('/').indexOf('converted');
-                        path += filePath.split('/')[index + 1] + '/' + filePath.split('/')[index + 2];
+            mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => __awaiter(this, void 0, void 0, function* () {
+                console.log(result[0]);
+                let bucketName = (0, constant_1.getBucketName)(result[0]["platform"]);
+                const files = fs_1.default.readdirSync(folderPath);
+                let length = files.length;
+                for (let i = 0; i < length; i++) {
+                    const file = files[i];
+                    const filePath = path_1.default.join(folderPath, file);
+                    const stats = fs_1.default.statSync(filePath);
+                    if (stats.isFile()) {
+                        let path = "videos/";
+                        if (filePath.includes(".ts") || filePath.includes(".m3u8")) {
+                            let index = filePath.split("/").indexOf("converted");
+                            path +=
+                                filePath.split("/")[index + 1] +
+                                    "/" +
+                                    filePath.split("/")[index + 2];
+                        }
+                        if (filePath.includes("download")) {
+                            let index = filePath.split("/").indexOf("converted");
+                            path +=
+                                filePath.split("/")[index + 1] +
+                                    "/" +
+                                    filePath.split("/")[index + 2] +
+                                    "/" +
+                                    filePath.split("/")[index + 3];
+                        }
+                        yield uploadFileToS3(filePath, bucketName, path, id);
                     }
-                    if (filePath.includes('download')) {
-                        let index = filePath.split('/').indexOf('converted');
-                        path += filePath.split('/')[index + 1] + '/' + filePath.split('/')[index + 2] + '/' + filePath.split('/')[index + 3];
-                    }
-                    yield uploadFileToS3(filePath, bucketName, path, id);
                 }
-            }
+            }));
         }
         catch (err) {
-            mysqldb_service_1.default.query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, ['failed to upload s3', id]);
-            console.error('Error reading folder or uploading files:', err);
+            mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {
+                mysqldb_service_1.default
+                    .getInstance((0, constant_1.getDBName)(result[0]["platform"]))
+                    .query(`UPDATE  ${state_1.tableName} SET status = ? WHERE uniqid = ?`, [
+                    "failed to upload s3",
+                    id,
+                ])
+                    .then((result) => {
+                    console.log(folderPath + "uploaded to s3" + id);
+                });
+            });
+            mysqlbHLS_service_1.default.query("UPDATE  table SET error = ? WHERE uniqid=?", [
+                ,
+                err.message,
+                id,
+            ]).then((result) => { });
+            console.error("Error reading folder or uploading files:", err);
         }
     });
 }

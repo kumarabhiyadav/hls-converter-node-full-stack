@@ -9,13 +9,35 @@ const FileUpload: React.FC = () => {
   const [progress, setProgress] = useState(0);
   const [converting, setConverting] = useState('');
   const [uploading, setUploading] = useState('');
+ let keys = [
+    "bebu",
+    "abethu",
+    "bhoju",
+    "chorchuri",
+    "cineuns",
+    "kannadaflix",
+    "keeflix",
+    "kidullan",
+    "kooku",
+    "olaple",
+    "rokkt",
+    "sonadoll",
+    "ubeetu"
+]
+
+const [selectedOption, setSelectedOption] = useState('');
+
+const handleChange = (event:any) => {
+  setSelectedOption(event.target.value);
+};
+
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = async () => {
     const fileInput = fileInputRef.current;
-    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
-      alert('Please select a file to upload.');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0 && selectedOption!= '') {
+      alert('Please select a file to upload. or select platform');
       return;
     }
 
@@ -23,7 +45,8 @@ const FileUpload: React.FC = () => {
 
     try {
       const response = await axios.post(`${domain}${endpoint.createWebSocketForFile}`, {
-        filename: file.name
+        filename: file.name,
+        platform : selectedOption
       });
       const path = response.data.uniqId;
 
@@ -105,6 +128,19 @@ const FileUpload: React.FC = () => {
   return (
     <div>
       <h2>Convert TO  HLS</h2>
+
+      <div>
+      {/* <h5>Select Platfrom</h5> */}
+      <select value={selectedOption} onChange={handleChange}>
+        <option value="" disabled>Select Platfrom</option>
+        {keys.map((key) => (
+          <option key={key} value={key}>
+            {key}
+          </option>
+        ))}
+      </select>
+    </div>
+      <br />
       <input type="file" ref={fileInputRef} accept=".mp4" />
 
       <button onClick={handleFileUpload}>Upload</button>

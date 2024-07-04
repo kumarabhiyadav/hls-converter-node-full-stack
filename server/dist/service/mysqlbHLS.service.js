@@ -6,14 +6,13 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const mysql2_1 = __importDefault(require("mysql2"));
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
-class Database {
-    constructor(dbName) {
-        this.dbName = dbName;
+class DatabaseHLS {
+    constructor() {
         this.connection = mysql2_1.default.createConnection({
             host: process.env.DB_HOST,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
-            database: this.dbName
+            database: 'hls_converter'
         });
         this.connection.connect((err) => {
             if (err) {
@@ -23,15 +22,16 @@ class Database {
             console.log('Connected to the database as id', this.connection.threadId);
         });
     }
-    static getInstance(dbName) {
-        if (!Database.instance || Database.instance.dbName !== dbName) {
-            Database.instance = new Database(dbName);
+    static getInstance() {
+        if (!DatabaseHLS.instance) {
+            DatabaseHLS.instance = new DatabaseHLS();
         }
-        return Database.instance;
+        return DatabaseHLS.instance;
     }
     query(sql, args) {
+        let sqlQuery = sql.replace('table', 'master');
         return new Promise((resolve, reject) => {
-            this.connection.query(sql, args, (err, results) => {
+            this.connection.query(sqlQuery, args, (err, results) => {
                 if (err) {
                     return reject(err);
                 }
@@ -50,4 +50,4 @@ class Database {
         });
     }
 }
-exports.default = Database;
+exports.default = DatabaseHLS.getInstance();
