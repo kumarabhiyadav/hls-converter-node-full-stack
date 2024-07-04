@@ -26,13 +26,13 @@ const History: React.FC = () => {
 
   const handlePlatformChange = (event:any) => {
     setSelectedPlatform(event.target.value);
-    filterData(event.target.value,'')
+    filterData(event.target.value,selectedStatus)
 
   };
 
   const handleStatusChange = (event:any) => {
     setSelectedStatus(event.target.value);
-    filterData('',event.target.value)
+    filterData(selectedPlatform,event.target.value)
   };
 
   
