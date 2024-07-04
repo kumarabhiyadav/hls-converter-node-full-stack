@@ -16,7 +16,7 @@ let platforms =[
   "sonadoll",
   "ubeetu"
 ]
-let statuses = ["converting streaming file","creating playlist.m3u8","converting download files","Uploading HLS to s3","Uploading Downloadfile to s3","uploaded to S3"];
+let statuses = ["converting streaming file","creating playlist.m3u8","converting download files","Uploading streaming file to s3","Uploading Download file to s3","uploaded to S3"];
 
 const History: React.FC = () => {
   const [history, setHistory] = useState<any[]>([]);

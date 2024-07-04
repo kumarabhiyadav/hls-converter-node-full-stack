@@ -1,5 +1,5 @@
-export const domain = "http://localhost:8080";
-export const wsdomain = "ws://localhost:8080";
+export const domain = "http://175.111.97.105:8080";
+export const wsdomain = "ws://175.111.97.105:8080";
 
 
 

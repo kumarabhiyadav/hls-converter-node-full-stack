@@ -12,6 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.updateStatus = void 0;
 const express_1 = __importDefault(require("express"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const express_fileupload_1 = __importDefault(require("express-fileupload"));
@@ -63,7 +64,6 @@ wss.on("connection", (ws, req) => {
             if (message.length < 1048576) {
                 const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
                 fs_1.default.writeFile(filePath, combinedBuffer, (err) => __awaiter(void 0, void 0, void 0, function* () {
-                    var _a, _b;
                     if (err) {
                         console.error("Error writing file:", err);
                         ws.send("Error writing file");
@@ -91,12 +91,9 @@ wss.on("connection", (ws, req) => {
                                 yield updateStatus("creating playlist.m3u8", uniqid);
                                 yield generatePlaylist(outputdir);
                                 yield updateStatus("converting download files", uniqid);
-                                yield convertToMultipleResolutions(filePath, outputdir + "/download/", currentFile.uniqId);
-                                yield updateStatus("Uploading HLS to s3", uniqid);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, (_a = process.env.S3_BUCKET) !== null && _a !== void 0 ? _a : "", currentFile.uniqId);
-                                yield updateStatus("Uploading Downloadfile to s3", uniqid);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir + "/download/", (_b = process.env.S3_BUCKET) !== null && _b !== void 0 ? _b : "", currentFile.uniqId);
-                                yield updateStatus("uploaded to S3", uniqid);
+                                yield convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
+                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, uniqid);
+                                yield (0, s3Upload_1.uploadFolderToS3)(`${outputdir}/download/`, uniqid);
                                 return;
                             }
                         }
@@ -295,3 +292,4 @@ function updateStatus(status, id) {
         });
     });
 }
+exports.updateStatus = updateStatus;

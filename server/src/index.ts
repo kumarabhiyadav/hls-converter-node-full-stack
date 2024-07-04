@@ -104,24 +104,15 @@ wss.on("connection", (ws, req) => {
                 await updateStatus("creating playlist.m3u8", uniqid);
                 await generatePlaylist(outputdir);
                 await updateStatus("converting download files", uniqid);
-                await convertToMultipleResolutions(
-                  filePath,
-                  outputdir + "/download/",
-                  currentFile!.uniqId
-                );
-                await updateStatus("Uploading HLS to s3", uniqid);
-                await uploadFolderToS3(
-                  outputdir,
-                  process.env.S3_BUCKET ?? "",
-                  currentFile!.uniqId
-                );
-                await updateStatus("Uploading Downloadfile to s3", uniqid);
-                await uploadFolderToS3(
-                  outputdir + "/download/",
-                  process.env.S3_BUCKET ?? "",
-                  currentFile!.uniqId
-                );
-                await updateStatus("uploaded to S3", uniqid);
+            
+                // Convert to multiple resolutions
+                await convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
+            
+                // Upload HLS folder to S3
+                await uploadFolderToS3(outputdir, uniqid);
+            
+                // Upload download folder to S3
+                await uploadFolderToS3(`${outputdir}/download/`, uniqid);
                 return;
               }
             }
@@ -322,7 +313,7 @@ async function convertToMultipleResolutions(
   }
 }
 
-async function updateStatus(status: string, id: string) {
+export async function updateStatus(status: string, id: string) {
   DatabaseHLS.query("SELECT platform FROM table WHERE uniqid=?", [id]).then(
     (result: any) => {
       mysqldbService

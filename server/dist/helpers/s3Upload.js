@@ -20,6 +20,7 @@ const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"))
 const mysqlbHLS_service_1 = __importDefault(require("../service/mysqlbHLS.service"));
 const state_1 = require("../service/state");
 const constant_1 = require("../service/constant");
+const index_1 = require("../index");
 aws_sdk_1.default.config.update({
     accessKeyId: process.env.S3_KEY,
     secretAccessKey: process.env.S3_SECRET,
@@ -128,7 +129,7 @@ function uploadFileToS3(filePath, bucketName, uploadPath, id) {
         });
     });
 }
-function uploadFolderToS3(folderPath, bucketName, id) {
+function uploadFolderToS3(folderPath, id) {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => __awaiter(this, void 0, void 0, function* () {
@@ -148,6 +149,7 @@ function uploadFolderToS3(folderPath, bucketName, id) {
                                 filePath.split("/")[index + 1] +
                                     "/" +
                                     filePath.split("/")[index + 2];
+                            (0, index_1.updateStatus)('Uploading streaming file to s3', id);
                         }
                         if (filePath.includes("download")) {
                             let index = filePath.split("/").indexOf("converted");
@@ -157,11 +159,13 @@ function uploadFolderToS3(folderPath, bucketName, id) {
                                     filePath.split("/")[index + 2] +
                                     "/" +
                                     filePath.split("/")[index + 3];
+                            (0, index_1.updateStatus)('Uploading Download file to s3', id);
                         }
                         yield uploadFileToS3(filePath, bucketName, path, id);
                     }
                 }
             }));
+            (0, index_1.updateStatus)('uploaded to S3', id);
         }
         catch (err) {
             mysqlbHLS_service_1.default.query("SELECT platform FROM table WHERE uniqid=?", [id]).then((result) => {

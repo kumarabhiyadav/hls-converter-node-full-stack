@@ -5,6 +5,7 @@ import mysqldbService from "../service/mysqldb.service";
 import DatabaseHls from "../service/mysqlbHLS.service";
 import { tableName } from "../service/state";
 import { getBucketName, getDBName } from "../service/constant";
+import { updateStatus } from "../index";
 
 // Set up AWS credentials and region
 AWS.config.update({
@@ -140,10 +141,11 @@ async function uploadFileToS3(
 // Function to upload a folder to S3 asynchronously
 export async function uploadFolderToS3(
   folderPath: string,
-  bucketName: string,
   id: string
 ) {
   try {
+
+    
     DatabaseHls.query("SELECT platform FROM table WHERE uniqid=?", [id]).then(
       async (result: any) => {
         console.log(result[0]);
@@ -163,6 +165,7 @@ export async function uploadFolderToS3(
                 filePath.split("/")[index + 1] +
                 "/" +
                 filePath.split("/")[index + 2];
+                updateStatus('Uploading streaming file to s3',id);
             }
 
             if (filePath.includes("download")) {
@@ -173,6 +176,7 @@ export async function uploadFolderToS3(
                 filePath.split("/")[index + 2] +
                 "/" +
                 filePath.split("/")[index + 3];
+                updateStatus('Uploading Download file to s3',id);
             }
 
             await uploadFileToS3(filePath, bucketName, path, id);
@@ -180,6 +184,10 @@ export async function uploadFolderToS3(
         }
       }
     );
+
+    updateStatus('uploaded to S3',id);
+
+    
   } catch (err) {
     DatabaseHls.query("SELECT platform FROM table WHERE uniqid=?", [id]).then(
       (result: any) => {
