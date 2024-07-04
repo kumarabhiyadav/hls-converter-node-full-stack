@@ -14,7 +14,7 @@ import { WebSocketServer } from "ws";
 import path from "path";
 dotenv.config();
 const port = process.env.PORT;
-import DatabaseHLS from "../src/service/mysqlbHLS.service";
+import DatabaseHLS from "./service/mysqlbHLS.service";
 
 console.log(port);
 

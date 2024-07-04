@@ -24,7 +24,7 @@ const ws_1 = require("ws");
 const path_1 = __importDefault(require("path"));
 dotenv_1.default.config();
 const port = process.env.PORT;
-const mysqlbHLS_service_1 = __importDefault(require("../src/service/mysqlbHLS.service"));
+const mysqlbHLS_service_1 = __importDefault(require("./service/mysqlbHLS.service"));
 console.log(port);
 app.use((0, cors_1.default)({ origin: "*" }));
 const fluent_ffmpeg_1 = __importDefault(require("fluent-ffmpeg"));
