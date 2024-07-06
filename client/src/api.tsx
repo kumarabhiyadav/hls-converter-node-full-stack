@@ -60,7 +60,7 @@ export const getBucketName = (key: string): string => {
 };
 
 export const getMediaURL = (key: string): string => {
-  let url = `https://${key}`;
+  let url = `https://media1.${key}`;
 
   switch (key) {
     case "bebu":
