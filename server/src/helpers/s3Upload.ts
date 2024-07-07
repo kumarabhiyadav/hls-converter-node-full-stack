@@ -185,6 +185,8 @@ export async function uploadFolderToS3(
       }
     );
 
+    console.log("Uploaded to S3");
+
     updateStatus('uploaded to S3',id);
 
     

@@ -165,6 +165,7 @@ function uploadFolderToS3(folderPath, id) {
                     }
                 }
             }));
+            console.log("Uploaded to S3");
             (0, index_1.updateStatus)('uploaded to S3', id);
         }
         catch (err) {
