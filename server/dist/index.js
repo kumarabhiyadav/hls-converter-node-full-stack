@@ -19,6 +19,7 @@ const express_fileupload_1 = __importDefault(require("express-fileupload"));
 const cors_1 = __importDefault(require("cors"));
 const fs_1 = __importDefault(require("fs"));
 const app = (0, express_1.default)();
+app.use(require('express-status-monitor')());
 app.use((0, express_fileupload_1.default)());
 const conversion_controller_1 = require("./controllers/conversion.controller");
 const ws_1 = require("ws");
@@ -46,79 +47,75 @@ let server = app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);
 });
 const wss = new ws_1.WebSocketServer({ server });
-wss.on("connection", (ws, req) => {
-    console.log("New client connected");
-    let fileBuffer = [];
+wss.on('connection', (ws, req) => {
+    console.log('New client connected');
+    let fileWriteStream;
     let totalLength = 0;
-    ws.on("message", (message) => {
+    let currentFile;
+    ws.on('message', (message) => __awaiter(void 0, void 0, void 0, function* () {
         if (Buffer.isBuffer(message)) {
-            let reqPath = req.url;
-            let currentFile = state_1.currentFiles.find((e) => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace("/", "")));
+            const reqPath = req.url;
             if (!currentFile) {
-                ws.close();
-                return;
+                currentFile = state_1.currentFiles.find(e => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace('/', '')));
+                if (!currentFile) {
+                    ws.close();
+                    return;
+                }
+                const filePath = path_1.default.join(uploadsDir, currentFile.file);
+                fileWriteStream = fs_1.default.createWriteStream(filePath);
             }
-            fileBuffer.push(message);
             totalLength += message.length;
-            const filePath = path_1.default.join(uploadsDir, currentFile.file);
+            fileWriteStream.write(message);
             if (message.length < 1048576) {
-                const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
-                fs_1.default.writeFile(filePath, combinedBuffer, (err) => __awaiter(void 0, void 0, void 0, function* () {
-                    if (err) {
-                        console.error("Error writing file:", err);
-                        ws.send("Error writing file");
-                    }
-                    else {
-                        ws.send(JSON.stringify({
-                            status: "completed",
-                            message: "File received completely",
-                        }));
-                        ws.send(JSON.stringify({
-                            status: "converting",
-                            message: "File Upload is completed, Converting file...",
-                        }));
-                        if (currentFile) {
-                            ws.close();
-                            currentFile = state_1.currentFiles.find((e) => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace("/", "")));
-                            if (currentFile) {
-                                let outputdir = converted +
-                                    "/" +
-                                    currentFile.file.split(".").slice(0, -1).join(".");
-                                console.log(outputdir);
-                                let uniqid = currentFile.uniqId;
-                                yield updateStatus("converting streaming file", uniqid);
-                                yield convertVideo(filePath, outputdir, currentFile.uniqId);
-                                yield updateStatus("creating playlist.m3u8", uniqid);
-                                yield generatePlaylist(outputdir);
-                                yield updateStatus("converting download files", uniqid);
-                                yield convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
-                                yield (0, s3Upload_1.uploadFolderToS3)(outputdir, uniqid);
-                                yield (0, s3Upload_1.uploadFolderToS3)(`${outputdir}/download/`, uniqid);
-                                return;
-                            }
-                        }
-                        try {
-                        }
-                        catch (error) {
-                            ws.send(JSON.stringify({
-                                status: "error",
-                                message: "Video conversion failed",
-                            }));
-                        }
-                    }
+                fileWriteStream.end();
+                ws.send(JSON.stringify({
+                    status: 'completed',
+                    message: 'File received completely'
                 }));
+                ws.send(JSON.stringify({
+                    status: 'converting',
+                    message: 'File Upload is completed, Converting file...'
+                }));
+                if (currentFile) {
+                    const filePath = path_1.default.join(uploadsDir, currentFile.file);
+                    const outputdir = path_1.default.join(converted, currentFile.file.split('.').slice(0, -1).join('.'));
+                    const uniqid = currentFile.uniqId;
+                    try {
+                        yield updateStatus('converting streaming file', uniqid);
+                        yield convertVideo(filePath, outputdir, uniqid);
+                        yield updateStatus('creating playlist.m3u8', uniqid);
+                        yield generatePlaylist(outputdir);
+                        yield updateStatus('converting download files', uniqid);
+                        yield convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
+                        yield (0, s3Upload_1.uploadFolderToS3)(outputdir, uniqid);
+                        yield (0, s3Upload_1.uploadFolderToS3)(`${outputdir}/download/`, uniqid);
+                    }
+                    catch (error) {
+                        ws.send(JSON.stringify({
+                            status: 'error',
+                            message: 'Video conversion failed'
+                        }));
+                    }
+                    ws.close();
+                }
             }
             else {
-                ws.send(JSON.stringify({ status: "progress", message: "Chunk received" }));
+                ws.send(JSON.stringify({
+                    status: 'progress',
+                    message: 'Chunk received'
+                }));
             }
         }
         else {
-            console.log("Received text message:", message);
-            ws.send("Echo: " + message);
+            console.log('Received text message:', message);
+            ws.send('Echo: ' + message);
         }
-    });
-    ws.on("close", () => {
-        console.log("Client disconnected");
+    }));
+    ws.on('close', () => {
+        console.log('Client disconnected');
+        if (fileWriteStream) {
+            fileWriteStream.end();
+        }
     });
 });
 function convertVideo(inputFilePath, outputDir, id) {
