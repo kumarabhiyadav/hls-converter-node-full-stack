@@ -80,7 +80,7 @@ export const getMediaURL = (key: string): string => {
       break;
 
     case "kooku":
-      url += "online";
+      url += ".online";
 
       break;
 
