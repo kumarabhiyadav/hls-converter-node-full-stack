@@ -4,7 +4,7 @@ import { Request, Response } from "express";
 import mysqldbService from "../service/mysqldb.service";
 import DatabaseHLS from "../service/mysqlbHLS.service";
 
-import { currentFiles, tableName } from "../service/state";
+import { globalCurrentFiles, tableName } from "../service/state";
 import {  getDBName } from "../service/constant";
 
 
@@ -21,7 +21,7 @@ export const createWebSocketForFile = tryCatchFn(async (req: Request, res: Respo
     console.warn(err)
   });;
 
-  currentFiles.push({'file':req.body.filename,uniqId:uniqId})
+  globalCurrentFiles.push({'file':req.body.filename,uniqId:uniqId})
   return res.status(200).json({ uniqId:"/"+uniqId });
 });
 

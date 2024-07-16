@@ -1,0 +1,72 @@
+
+                if (err) {
+                    console.error('Error querying database:', err);
+                    ws.send('Error querying database');
+                    return;
+                }
+
+                if (docs.length === 0) {
+                    console.error('Document with ulid not found:', reqPath);
+                    ws.send('Document not found');
+                    return;
+                }
+
+                const filename = docs[0].filename;
+
+                const filePath = path.join(uploadsDir, filename);
+
+                if (message.length < 1048576) {
+                    const combinedBuffer = Buffer.concat(fileBuffer, totalLength);
+
+                    fs.writeFile(filePath, combinedBuffer, async (err) => {
+                        if (err) {
+                            console.error('Error writing file:', err);
+                            ws.send('Error writing file');
+                        } else {
+                            // console.log('File saved successfully:', filePath);
+
+                            db.update({ ulid: reqPath }, { $set: { state: 'uploaded' } }, {});
+
+                            ws.send(JSON.stringify({ status: 'completed', message: 'File received completely' }));
+
+                            try {
+                                let outputdir = converted + '/' + docs[0].filename.split('.').slice(0, -1).join('.');
+
+                                fs.mkdir(outputdir, { recursive: true }, (err) => {
+                                    if (err) {
+                                        return console.error(`Error creating directory: ${err.message}`);
+                                    }
+                                    // console.log('Directory created successfully!');
+                                });
+                                await convertVideo(filePath, outputdir, ws, docs[0]._id);
+
+                                db.update({ ulid: reqPath }, { $set: { state: 'converting' } }, {});
+
+                                ws.send(JSON.stringify({ status: 'converting', message: 'Video conversion completed' }));
+                                fs.mkdir(outputdir + '/download/', { recursive: true }, (err) => {
+                                    if (err) {
+                                        return console.error(`Error creating directory: ${err.message}`);
+                                    }
+                                    // console.log('Directory created successfully!');
+                                });
+                                await generatePlaylist(outputdir);
+                                await convertToMultipleResolutions(filePath, outputdir + '/download/', ws, docs[0]._id);
+
+                                db.update({ _id: docs[0]._id }, { $set: { 'status': 'converted' } })
+
+
+                                await uploadFolderToS3(outputdir, process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
+                                await uploadFolderToS3(outputdir + '/download/', process.env.S3_BUCKET ?? '', ws, docs[0]['_id']);
+                            } catch (error) {
+                                console.error('Error converting video:', error);
+                                db.update({ _id: docs[0]._id }, { $set: { 'error': error.message } })
+
+                                ws.send(JSON.stringify({ status: 'error', message: 'Video conversion failed' }));
+                            }
+                        }
+                    });
+                } else {
+                    // Send progress update for chunk received
+                    ws.send(JSON.stringify({ status: 'progress', message: 'Chunk received' }));
+                }
+            });

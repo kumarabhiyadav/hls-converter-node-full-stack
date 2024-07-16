@@ -22,10 +22,11 @@ console.log(port);
 app.use(cors({ origin: "*" }));
 import ffmpeg from "fluent-ffmpeg";
 import { uploadFolderToS3 } from "./helpers/s3Upload";
-import { currentFiles, tableName } from "./service/state";
+import { globalCurrentFiles, tableName } from "./service/state";
 import { log } from "console";
 import mysqldbService from "./service/mysqldb.service";
 import { getDBName } from "./service/constant";
+import { Queue } from "./service/Queue.model";
 
 app.use(express.json({ limit: "5000mb" }));
 
@@ -46,67 +47,68 @@ let server = app.listen(port, () => {
 
 const wss = new WebSocketServer({ server });
 
+const uploadQueue = new Queue<{ uniqId: string, ws: any }>();
+let isProcessing = false;
+
 wss.on('connection', (ws, req) => {
   console.log('New client connected');
-
-  let fileWriteStream:any;
-  let totalLength = 0;
-  let currentFile:any;
+  let fileWriteStreams = new Map<string, fs.WriteStream>();
+  let totalLengths = new Map<string, number>();
+  let currentFiles = new Map<string, any>();
 
   ws.on('message', async (message) => {
     if (Buffer.isBuffer(message)) {
       const reqPath = req.url;
-      if (!currentFile) {
-        currentFile = currentFiles.find(e => e.uniqId === reqPath?.replace('/', ''));
+      if (!reqPath) {
+        ws.close();
+        return;
+      }
+      const uniqId = reqPath.replace('/', '');
+
+      if (!currentFiles.has(uniqId)) {
+        const currentFile = globalCurrentFiles.find(e => e.uniqId === uniqId);
         if (!currentFile) {
           ws.close();
           return;
         }
+        currentFiles.set(uniqId, currentFile);
         const filePath = path.join(uploadsDir, currentFile.file);
-        fileWriteStream = fs.createWriteStream(filePath);
+        fileWriteStreams.set(uniqId, fs.createWriteStream(filePath));
+        totalLengths.set(uniqId, 0);
+      }
+      const fileWriteStream = fileWriteStreams.get(uniqId);
+      if (!fileWriteStream) {
+        ws.close();
+        return;
       }
 
-      totalLength += message.length;
+      totalLengths.set(uniqId, (totalLengths.get(uniqId) || 0) + message.length);
       fileWriteStream.write(message);
-
       if (message.length < 1048576) {
         fileWriteStream.end();
         ws.send(JSON.stringify({
           status: 'completed',
-          message: 'File received completely'
+          message: `File ${currentFiles.get(uniqId)?.file} received completely`,
+          uniqId: uniqId
         }));
         ws.send(JSON.stringify({
-          status: 'converting',
-          message: 'File Upload is completed, Converting file...'
+          status: 'queued',
+          message: `File ${currentFiles.get(uniqId)?.file} upload is completed, Queued for processing...`,
+          uniqId: uniqId
         }));
 
-        if (currentFile) {
-          const filePath = path.join(uploadsDir, currentFile.file);
-          const outputdir = path.join(converted, currentFile.file.split('.').slice(0, -1).join('.'));
-          const uniqid = currentFile.uniqId;
+        // Add to queue
+        uploadQueue.enqueue({ uniqId, ws });
+        processQueue();
 
-          try {
-            await updateStatus('converting streaming file', uniqid);
-            await convertVideo(filePath, outputdir, uniqid);
-            await updateStatus('creating playlist.m3u8', uniqid);
-            await generatePlaylist(outputdir);
-            await updateStatus('converting download files', uniqid);
-            await convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
-            await uploadFolderToS3(outputdir, uniqid);
-            await uploadFolderToS3(`${outputdir}/download/`, uniqid);
-          } catch (error) {
-            ws.send(JSON.stringify({
-              status: 'error',
-              message: 'Video conversion failed'
-            }));
-          }
-
-          ws.close();
-        }
+        // Clean up
+        fileWriteStreams.delete(uniqId);
+        totalLengths.delete(uniqId);
       } else {
         ws.send(JSON.stringify({
           status: 'progress',
-          message: 'Chunk received'
+          message: 'Chunk received',
+          uniqId: uniqId
         }));
       }
     } else {
@@ -117,12 +119,74 @@ wss.on('connection', (ws, req) => {
 
   ws.on('close', () => {
     console.log('Client disconnected');
-    if (fileWriteStream) {
-      fileWriteStream.end();
+    for (const stream of fileWriteStreams.values()) {
+      stream.end();
     }
   });
 });
 
+async function processQueue() {
+  if (isProcessing || uploadQueue.isEmpty()) {
+    return;
+  }
+
+  isProcessing = true;
+  const item = uploadQueue.dequeue();
+  if (!item) {
+    isProcessing = false;
+    return;
+  }
+
+  const { uniqId, ws } = item;
+  const currentFile = globalCurrentFiles.find((e) => e.uniqId == uniqId);
+  if (!currentFile) {
+    isProcessing = false;
+    processQueue();
+    return;
+  }
+
+  const filePath = path.join(uploadsDir, currentFile.file);
+  const outputdir = path.join(converted, currentFile.file.split('.').slice(0, -1).join('.'));
+
+  try {
+
+    await updateStatus('upload completed yet to start conversion', uniqId);
+    ws.send(JSON.stringify({
+      status: 'processing',
+      message: `Processing started for file ${currentFile.file}`,
+      uniqId: uniqId
+    }));
+
+    await updateStatus('converting streaming file', uniqId);
+    await convertVideo(filePath, outputdir, uniqId);
+    await updateStatus('creating playlist.m3u8', uniqId);
+    await generatePlaylist(outputdir);
+    await updateStatus('converting download files', uniqId);
+    await convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqId);
+    await uploadFolderToS3(outputdir, uniqId);
+    await uploadFolderToS3(`${outputdir}/download/`, uniqId);
+
+    ws.send(JSON.stringify({
+      status: 'processingCompleted',
+      message: `Processing completed for file ${currentFile.file}`,
+      uniqId: uniqId
+    }));
+  } catch (error) {
+    ws.send(JSON.stringify({
+      status: 'error',
+      message: `Video conversion failed for file ${currentFile.file}`,
+      uniqId: uniqId
+    }));
+  } finally {
+    let index = globalCurrentFiles.findIndex((e) => e.uniqId == uniqId);
+
+    if (index != -1) {
+      globalCurrentFiles.splice(index, 1)
+    }
+    isProcessing = false;
+    processQueue(); // Process next item in the queue
+  }
+}
 async function convertVideo(
   inputFilePath: string,
   outputDir: string,
@@ -201,7 +265,7 @@ async function convertVideo(
           ])
           .output(resolution.output)
           .on("end", () => resolve())
-          .on("progress", (progress) => {})
+          .on("progress", (progress) => { })
           .on("error", (err: any) => {
             console.error(err);
           })
@@ -275,7 +339,7 @@ async function convertToMultipleResolutions(
         .on("progress", (progress) => {
           // console.log("Converting download");
         })
-        .on("error", (err) => {})
+        .on("error", (err) => { })
         .run();
     });
   });
