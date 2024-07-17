@@ -34,6 +34,7 @@ const s3Upload_1 = require("./helpers/s3Upload");
 const state_1 = require("./service/state");
 const mysqldb_service_1 = __importDefault(require("./service/mysqldb.service"));
 const constant_1 = require("./service/constant");
+const Queue_model_1 = require("./service/Queue.model");
 app.use(express_1.default.json({ limit: "5000mb" }));
 const uploadsDir = path_1.default.join(__dirname, "..", "uploads");
 const converted = path_1.default.join(__dirname, "..", "converted");
@@ -47,62 +48,62 @@ let server = app.listen(port, () => {
     console.log(`[server]: Server is running at http://localhost:${port}`);
 });
 const wss = new ws_1.WebSocketServer({ server });
+const uploadQueue = new Queue_model_1.Queue();
+let isProcessing = false;
 wss.on('connection', (ws, req) => {
     console.log('New client connected');
-    let fileWriteStream;
-    let totalLength = 0;
-    let currentFile;
+    let fileWriteStreams = new Map();
+    let totalLengths = new Map();
+    let currentFiles = new Map();
     ws.on('message', (message) => __awaiter(void 0, void 0, void 0, function* () {
+        var _a, _b;
         if (Buffer.isBuffer(message)) {
             const reqPath = req.url;
-            if (!currentFile) {
-                currentFile = state_1.currentFiles.find(e => e.uniqId === (reqPath === null || reqPath === void 0 ? void 0 : reqPath.replace('/', '')));
+            if (!reqPath) {
+                ws.close();
+                return;
+            }
+            const uniqId = reqPath.replace('/', '');
+            if (!currentFiles.has(uniqId)) {
+                const currentFile = state_1.globalCurrentFiles.find(e => e.uniqId === uniqId);
                 if (!currentFile) {
                     ws.close();
                     return;
                 }
+                currentFiles.set(uniqId, currentFile);
                 const filePath = path_1.default.join(uploadsDir, currentFile.file);
-                fileWriteStream = fs_1.default.createWriteStream(filePath);
+                fileWriteStreams.set(uniqId, fs_1.default.createWriteStream(filePath));
+                totalLengths.set(uniqId, 0);
             }
-            totalLength += message.length;
+            const fileWriteStream = fileWriteStreams.get(uniqId);
+            if (!fileWriteStream) {
+                ws.close();
+                return;
+            }
+            totalLengths.set(uniqId, (totalLengths.get(uniqId) || 0) + message.length);
             fileWriteStream.write(message);
             if (message.length < 1048576) {
                 fileWriteStream.end();
                 ws.send(JSON.stringify({
                     status: 'completed',
-                    message: 'File received completely'
+                    message: `File ${(_a = currentFiles.get(uniqId)) === null || _a === void 0 ? void 0 : _a.file} received completely`,
+                    uniqId: uniqId
                 }));
                 ws.send(JSON.stringify({
-                    status: 'converting',
-                    message: 'File Upload is completed, Converting file...'
+                    status: 'queued',
+                    message: `File ${(_b = currentFiles.get(uniqId)) === null || _b === void 0 ? void 0 : _b.file} upload is completed, Queued for processing...`,
+                    uniqId: uniqId
                 }));
-                if (currentFile) {
-                    const filePath = path_1.default.join(uploadsDir, currentFile.file);
-                    const outputdir = path_1.default.join(converted, currentFile.file.split('.').slice(0, -1).join('.'));
-                    const uniqid = currentFile.uniqId;
-                    try {
-                        yield updateStatus('converting streaming file', uniqid);
-                        yield convertVideo(filePath, outputdir, uniqid);
-                        yield updateStatus('creating playlist.m3u8', uniqid);
-                        yield generatePlaylist(outputdir);
-                        yield updateStatus('converting download files', uniqid);
-                        yield convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqid);
-                        yield (0, s3Upload_1.uploadFolderToS3)(outputdir, uniqid);
-                        yield (0, s3Upload_1.uploadFolderToS3)(`${outputdir}/download/`, uniqid);
-                    }
-                    catch (error) {
-                        ws.send(JSON.stringify({
-                            status: 'error',
-                            message: 'Video conversion failed'
-                        }));
-                    }
-                    ws.close();
-                }
+                uploadQueue.enqueue({ uniqId, ws });
+                processQueue();
+                fileWriteStreams.delete(uniqId);
+                totalLengths.delete(uniqId);
             }
             else {
                 ws.send(JSON.stringify({
                     status: 'progress',
-                    message: 'Chunk received'
+                    message: 'Chunk received',
+                    uniqId: uniqId
                 }));
             }
         }
@@ -113,11 +114,69 @@ wss.on('connection', (ws, req) => {
     }));
     ws.on('close', () => {
         console.log('Client disconnected');
-        if (fileWriteStream) {
-            fileWriteStream.end();
+        for (const stream of fileWriteStreams.values()) {
+            stream.end();
         }
     });
 });
+function processQueue() {
+    return __awaiter(this, void 0, void 0, function* () {
+        if (isProcessing || uploadQueue.isEmpty()) {
+            return;
+        }
+        isProcessing = true;
+        const item = uploadQueue.dequeue();
+        if (!item) {
+            isProcessing = false;
+            return;
+        }
+        const { uniqId, ws } = item;
+        const currentFile = state_1.globalCurrentFiles.find((e) => e.uniqId == uniqId);
+        if (!currentFile) {
+            isProcessing = false;
+            processQueue();
+            return;
+        }
+        const filePath = path_1.default.join(uploadsDir, currentFile.file);
+        const outputdir = path_1.default.join(converted, currentFile.file.split('.').slice(0, -1).join('.'));
+        try {
+            yield updateStatus('upload completed yet to start conversion', uniqId);
+            ws.send(JSON.stringify({
+                status: 'processing',
+                message: `Processing started for file ${currentFile.file}`,
+                uniqId: uniqId
+            }));
+            yield updateStatus('converting streaming file', uniqId);
+            yield convertVideo(filePath, outputdir, uniqId);
+            yield updateStatus('creating playlist.m3u8', uniqId);
+            yield generatePlaylist(outputdir);
+            yield updateStatus('converting download files', uniqId);
+            yield convertToMultipleResolutions(filePath, `${outputdir}/download/`, uniqId);
+            yield (0, s3Upload_1.uploadFolderToS3)(outputdir, uniqId);
+            yield (0, s3Upload_1.uploadFolderToS3)(`${outputdir}/download/`, uniqId);
+            ws.send(JSON.stringify({
+                status: 'processingCompleted',
+                message: `Processing completed for file ${currentFile.file}`,
+                uniqId: uniqId
+            }));
+        }
+        catch (error) {
+            ws.send(JSON.stringify({
+                status: 'error',
+                message: `Video conversion failed for file ${currentFile.file}`,
+                uniqId: uniqId
+            }));
+        }
+        finally {
+            let index = state_1.globalCurrentFiles.findIndex((e) => e.uniqId == uniqId);
+            if (index != -1) {
+                state_1.globalCurrentFiles.splice(index, 1);
+            }
+            isProcessing = false;
+            processQueue();
+        }
+    });
+}
 function convertVideo(inputFilePath, outputDir, id) {
     return __awaiter(this, void 0, void 0, function* () {
         console.log("input: " + inputFilePath);

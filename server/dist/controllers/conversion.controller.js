@@ -32,7 +32,7 @@ exports.createWebSocketForFile = (0, tryCatch_1.tryCatchFn)((req, res) => __awai
         console.warn(err);
     });
     ;
-    state_1.currentFiles.push({ 'file': req.body.filename, uniqId: uniqId });
+    state_1.globalCurrentFiles.push({ 'file': req.body.filename, uniqId: uniqId });
     return res.status(200).json({ uniqId: "/" + uniqId });
 }));
 exports.uploadVideo = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
