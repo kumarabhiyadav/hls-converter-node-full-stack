@@ -7,7 +7,8 @@ module.exports = {
         env: {
           node_args: ['--max-old-space-size=2048'], 
           NODE_ENV: 'production'
-        }
+        },
+        restart_delay: 1000
       }
     ]
   };
