@@ -5,7 +5,7 @@ import mysqldbService from "../service/mysqldb.service";
 import DatabaseHls from "../service/mysqlbHLS.service";
 import { tableName } from "../service/state";
 import { getBucketName, getDBName } from "../service/constant";
-import { updateStatus } from "../index";
+import { updateStatus } from "../service/converter.service";
 
 // Set up AWS credentials and region
 AWS.config.update({

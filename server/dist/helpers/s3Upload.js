@@ -20,7 +20,7 @@ const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"))
 const mysqlbHLS_service_1 = __importDefault(require("../service/mysqlbHLS.service"));
 const state_1 = require("../service/state");
 const constant_1 = require("../service/constant");
-const index_1 = require("../index");
+const converter_service_1 = require("../service/converter.service");
 aws_sdk_1.default.config.update({
     accessKeyId: process.env.S3_KEY,
     secretAccessKey: process.env.S3_SECRET,
@@ -145,12 +145,12 @@ function uploadFolderToS3(folderPath, id) {
                     if (filePath.includes(".ts") || filePath.includes(".m3u8")) {
                         let index = filePath.split("/").indexOf("converted");
                         uploadPath += filePath.split("/")[index + 1] + "/" + filePath.split("/")[index + 2];
-                        yield (0, index_1.updateStatus)('Uploading streaming file to s3', id);
+                        yield (0, converter_service_1.updateStatus)('Uploading streaming file to s3', id);
                     }
                     if (filePath.includes("download")) {
                         let index = filePath.split("/").indexOf("converted");
                         uploadPath += filePath.split("/")[index + 1] + "/" + filePath.split("/")[index + 2] + "/" + filePath.split("/")[index + 3];
-                        yield (0, index_1.updateStatus)('Uploading Download file to s3', id);
+                        yield (0, converter_service_1.updateStatus)('Uploading Download file to s3', id);
                     }
                     filesToUpload.push(uploadFileToS3(filePath, bucketName, uploadPath, id));
                 }
@@ -159,7 +159,7 @@ function uploadFolderToS3(folderPath, id) {
             try {
                 yield Promise.all(filesToUpload);
                 console.log("All files uploaded successfully");
-                yield (0, index_1.updateStatus)('uploaded to S3', id);
+                yield (0, converter_service_1.updateStatus)('uploaded to S3', id);
             }
             catch (error) {
                 console.error("Error uploading files:", error);
