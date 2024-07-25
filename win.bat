@@ -2,7 +2,7 @@
 setlocal
 
 REM Navigate to server directory and check if node_modules is missing
-cd server
+cd /d %~dp0\server
 if not exist node_modules (
   echo node_modules not found in server directory. Running npm install...
   npm install
@@ -27,13 +27,13 @@ if not exist converted (
 
 REM Start the server in the background
 echo Starting server...
-start /B node dist/index.js
+start /B cmd /c "node dist/index.js"
 
 REM Wait for server to start (you can adjust the timeout as needed)
 timeout /t 5 >nul
 
 REM Navigate back to the root directory
-cd ..
+cd /d %~dp0
 
 REM Navigate to client directory
 cd client
@@ -53,7 +53,7 @@ if not exist dist (
 
 REM Start the client in the background
 echo Starting client...
-start /B node serve.js
+start /B cmd /c "node serve.js"
 
 REM Open the browser to http://localhost:8081
 start "" "http://localhost:8081"
