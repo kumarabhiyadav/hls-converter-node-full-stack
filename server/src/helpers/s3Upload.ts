@@ -157,29 +157,26 @@ export async function uploadFolderToS3(
           const file = files[i];
           const filePath = path.join(folderPath, file);
           const stats = fs.statSync(filePath);
+      
           if (stats.isFile()) {
-            let path = "videos/";
-            if (filePath.includes(".ts") || filePath.includes(".m3u8")) {
-              let index = filePath.split("/").indexOf("converted");
-              path +=
-                filePath.split("/")[index + 1] +
-                "/" +
-                filePath.split("/")[index + 2];
-                updateStatus('Uploading streaming file to s3',id);
+            let s3Path = "videos/";
+            const normalizedFilePath = filePath.split(path.sep).join(path.posix.sep); // Normalize path to use forward slashes
+      
+            if (normalizedFilePath.includes(".ts") || normalizedFilePath.includes(".m3u8")) {
+              const parts = normalizedFilePath.split(path.posix.sep);
+              const index = parts.indexOf("converted");
+              s3Path += `${parts[index + 1]}/${parts[index + 2]}`;
+              updateStatus('Uploading streaming file to S3', id);
             }
-
-            if (filePath.includes("download")) {
-              let index = filePath.split("/").indexOf("converted");
-              path +=
-                filePath.split("/")[index + 1] +
-                "/" +
-                filePath.split("/")[index + 2] +
-                "/" +
-                filePath.split("/")[index + 3];
-                updateStatus('Uploading Download file to s3',id);
+      
+            if (normalizedFilePath.includes("download")) {
+              const parts = normalizedFilePath.split(path.posix.sep);
+              const index = parts.indexOf("converted");
+              s3Path += `${parts[index + 1]}/${parts[index + 2]}/${parts[index + 3]}`;
+              updateStatus('Uploading download file to S3', id);
             }
-
-            await uploadFileToS3(filePath, bucketName, path, id);
+      
+            await uploadFileToS3(filePath, bucketName, s3Path, id);
           }
         }
       }
