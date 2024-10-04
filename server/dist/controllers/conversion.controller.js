@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clear = exports.retry = exports.history = exports.createWebSocketForFile = void 0;
+exports.clear = exports.retry = exports.geturls = exports.history = exports.createWebSocketForFile = void 0;
 const ulid_1 = require("ulid");
 const tryCatch_1 = require("../helpers/tryCatch");
 const mysqldb_service_1 = __importDefault(require("../service/mysqldb.service"));
@@ -38,6 +38,14 @@ exports.createWebSocketForFile = (0, tryCatch_1.tryCatchFn)((req, res) => __awai
 }));
 exports.history = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
     mysqlbHLS_service_1.default.query(`SELECT * FROM table WHERE is_deleted =0 ORDER BY created_at DESC`, []).then((result) => {
+        res.status(200).send(result);
+    }).catch((error) => {
+        res.status(500).send(error);
+    });
+}));
+exports.geturls = (0, tryCatch_1.tryCatchFn)((req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    let platform = req.params.platform;
+    mysqlbHLS_service_1.default.query(`SELECT * FROM table WHERE platform= '${platform}' ORDER BY created_at DESC`, []).then((result) => {
         res.status(200).send(result);
     }).catch((error) => {
         res.status(500).send(error);

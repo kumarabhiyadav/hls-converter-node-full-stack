@@ -43,6 +43,21 @@ export const history = tryCatchFn(async (req: Request, res: Response) => {
 
 });
 
+export const geturls = tryCatchFn(async (req: Request, res: Response) => {
+
+  let  platform = req.params.platform;
+
+  DatabaseHLS.query(`SELECT * FROM table WHERE platform= '${platform}' ORDER BY created_at DESC`, []).then((result: any) => {
+
+    res.status(200).send(result);
+
+  }).catch((error: any) => {
+
+    res.status(500).send(error);
+  });
+
+});
+
 
 export const retry = tryCatchFn(async (req: Request, res: Response) => {
 

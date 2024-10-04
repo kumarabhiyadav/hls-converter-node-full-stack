@@ -33,6 +33,7 @@ app.post("/create-web-socket-for-file", conversion_controller_1.createWebSocketF
 app.get("/history", conversion_controller_1.history);
 app.post("/retry", conversion_controller_1.retry);
 app.delete("/clear", conversion_controller_1.clear);
+app.get("/geturls/:platform", conversion_controller_1.geturls);
 app.get("/", (req, res) => {
     res.send("Serving on port" + port);
 });

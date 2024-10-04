@@ -9,6 +9,7 @@ app.use(FileUpload());
 import {
   clear,
   createWebSocketForFile,
+  geturls,
   history,
   retry,
 } from "./controllers/conversion.controller";
@@ -35,6 +36,8 @@ app.post("/create-web-socket-for-file", createWebSocketForFile);
 app.get("/history", history);
 app.post("/retry", retry);
 app.delete("/clear", clear);
+
+app.get("/geturls/:platform",geturls );
 
 
 
